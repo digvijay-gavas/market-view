@@ -17,4 +17,4 @@ createServer(async(req,res)=>{
     }
     res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store'});res.end(body);
   }catch{res.writeHead(404);res.end('Not found');}
-}).listen(5174,'127.0.0.1',()=>console.log('Synthetic UI fixture: http://127.0.0.1:5174/'));
+}).listen(5175,'127.0.0.1',()=>console.log('Synthetic UI fixture: http://127.0.0.1:5175/'));

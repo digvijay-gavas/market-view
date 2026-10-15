@@ -14,7 +14,7 @@ npm run build
 npm run dev
 ```
 
-Open http://127.0.0.1:5173. Use a Google **Web application** OAuth client with that exact Authorized JavaScript origin. Enable Drive API, configure consent/test users, and paste the public client ID into the page. Never use the original desktop client secret. Full browser instructions are in [SETUP.html](SETUP.html).
+Open http://127.0.0.1:5174. Use a Google **Web application** OAuth client with that exact Authorized JavaScript origin. Enable Drive API, configure consent/test users, and paste the public client ID into the page. Never use the original desktop client secret. Full browser instructions are in [SETUP.html](SETUP.html).
 
 ## Data and permissions
 
@@ -47,7 +47,7 @@ The loaded portfolio uses viewport-sized tabs: **Overview**, **Holdings**, **All
 
 Capture details and warnings are paginated instead of extending the page. Narrow screens show one allocation chart at a time with Accounts / Largest holdings controls, and fewer account-source entries per page. Tab navigation supports Left/Right arrows, Home and End. The large introduction is removed after loading data; setup instructions remain a separate help page.
 
-The synthetic dense preview (`http://127.0.0.1:5174/?dense=1`) has 40 invented holdings and five accounts for layout checks. All five views were checked at desktop and narrow-screen sizes for page overflow and clipped panel content; only the holdings list has internal scrolling. No real portfolio data is part of that fixture.
+The synthetic dense preview (`http://127.0.0.1:5175/?dense=1`) has 40 invented holdings and five accounts for layout checks. All five views were checked at desktop and narrow-screen sizes for page overflow and clipped panel content; only the holdings list has internal scrolling. No real portfolio data is part of that fixture.
 
 ## Calculations and limits
 
@@ -73,7 +73,7 @@ The app supports an encrypted public client ID in `src/config.js`, unlocked with
 
 `npm test` covers aggregation, partial inputs, empty accounts, dividend overlap/account separation, snapshot validation/fallback, confirmation hash matching, Drive pagination, and read-only authenticated requests. CI runs tests and the allowlisted static build. Browser validation can cover the disconnected and synthetic mocked-data interface; real Google authorization requires the user's web OAuth client and consent. Synthetic fixtures are never shown in the production app automatically.
 
-For an explicit local synthetic UI check, run `npm run test:preview` and open `http://127.0.0.1:5174/`. This separate test server mocks Google and Drive using invented data; use `synthetic.apps.googleusercontent.com` as the client ID and `synthetic-root` as the folder ID. It is never copied into `dist/`. Disconnect should remove all portfolio values and account options. The production preview remains `http://127.0.0.1:5173/` and always uses real Google authorization.
+For an explicit local synthetic UI check, run `npm run test:preview` and open `http://127.0.0.1:5175/`. This separate test server mocks Google and Drive using invented data; use `synthetic.apps.googleusercontent.com` as the client ID and `synthetic-root` as the folder ID. It is never copied into `dist/`. Disconnect should remove all portfolio values and account options. The production preview remains `http://127.0.0.1:5174/` and always uses real Google authorization.
 
 ## Primary references
 
