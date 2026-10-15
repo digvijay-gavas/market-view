@@ -10,10 +10,14 @@ const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:
 const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Unknown';
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
+let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[];
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
   generation++;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
+  document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
+  for(const id of ['source-pages','warning-pages','allocation-pages','data-alert','overview-detail'])$(id).replaceChildren();
+  $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
   $('account').replaceChildren(new Option('Combined accounts',''));$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
   $('holdings-title').textContent='Holdings';$('table-note').textContent='';
@@ -56,14 +60,14 @@ async function action(work) {
 async function openFolder(id) {
   if(busy)return;
   // Drop the previous folder's data before requesting another one.
-  store=null;$('dashboard').hidden=true;
+  store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
   for(const key of ['positions','stats','allocation','largest','provenance','warnings'])$(key).replaceChildren();
   $('account').replaceChildren(new Option('Combined accounts',''));$('search').value='';
   await action(async attempt=>{
     status('Opening the Drive store…');
     const result=await reader.load(id,message=>{if(attempt===generation)status(message);});
     if(attempt!==generation)return;
-    store=result;selectedRoot=id;
+    store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
     for(const s of [...store.snapshots].sort((a,b)=>a.partition.localeCompare(b.partition)))$('account').add(new Option(s.partition,s.partition));
     $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();status('Loaded from Google Drive. Values reflect saved capture prices; no live quotes.');
   });
@@ -76,7 +80,8 @@ $('find-folders').addEventListener('click',()=>action(async attempt=>{
 }));
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
 $('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot);});
-$('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;});
+$('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
+$('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
 $('account').addEventListener('change',render);$('search').addEventListener('input',renderPositions);
 document.addEventListener('visibilitychange',()=>{if(token&&Date.now()>=expiry)disconnect('Google access expired. Connect again.');});
 window.addEventListener('pagehide',()=>disconnect());
@@ -87,23 +92,21 @@ function bar(container,name,value,share,colour='') {
 }
 function current(){return buildPortfolio(store.snapshots,store.dividends,$('account').value);}
 function render() {
-  if(!store)return;const p=current();$('dashboard').hidden=false;$('store-name').textContent=store.root.name;
+  if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
   const selected=store.snapshots.filter(s=>!$('account').value||s.partition===$('account').value);
   const dates=[...new Set(selected.map(s=>s.as_of||'unknown'))].sort();
-  $('freshness').textContent=`Holdings / saved prices: ${dates.join(' · ')} · Read from Drive ${stamp(store.loadedAt)} · Times shown in your browser’s timezone`;
+  $('freshness').textContent=`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`;
   const warnings=[...store.warnings];
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
-  $('warnings').hidden=!warnings.length;$('warnings').replaceChildren(...warnings.map(w=>text('p',w)));
+  currentWarnings=warnings;
+  $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
+  $('overview-detail').textContent=`${p.positions.length} holdings across ${p.accounts.length} account${p.accounts.length===1?'':'s'}. Prices and quantities are saved as of ${dates.join(' · ')}.`;
   $('stats').replaceChildren();
   const stats=[['CAPTURED MARKET VALUE',money(p.value),`${p.positions.length} holdings · ${p.accounts.length} accounts`],['INVESTED',money(p.cost),'Cost of the captured holdings'],['UNREALISED P&L',money(p.pnl),pct(p.returnPct)],['TOP 5 WEIGHT',numeric(p.top5)?p.top5.toFixed(1)+'%':'—','Share of captured market value'],['SAVED DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'All available report dates · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){const c=text('section','','stat');c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):''),text('p',note,'fine'));$('stats').append(c);}
-  $('allocation').replaceChildren();for(const a of p.accounts)bar($('allocation'),a.name,a.value,numeric(p.value)&&p.value>0&&numeric(a.value)?a.value/p.value*100:null);
-  $('largest').replaceChildren();for(const r of p.positions.slice(0,5))bar($('largest'),r.name,r.value,r.weight,'violet');
-  const table=document.createElement('table'),head=document.createElement('thead'),tr=document.createElement('tr');
-  for(const label of ['Account','Holdings / prices as of','Captured','Last confirmed','Positions'])tr.append(text('th',label));head.append(tr);table.append(head);
-  const body=document.createElement('tbody');for(const s of selected){const row=document.createElement('tr');for(const value of [s.partition,s.as_of||'Unknown',stamp(s.captured_at),stamp(s.confirmedAt),String(s.tables.holdings.length)])row.append(text('td',value));body.append(row);}table.append(body);$('provenance').replaceChildren(table);
+  renderDetails();
   renderPositions();
 }
 function renderPositions(){
@@ -113,3 +116,47 @@ function renderPositions(){
   if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':'This account was captured with no holdings.');td.colSpan=7;tr.append(td);$('positions').append(tr);}
   $('holdings-title').textContent=`Holdings · ${p.positions.length}`;$('table-note').textContent=`Showing ${rows.length} of ${p.positions.length}. Grouped by the source’s exact Groww slug; no guessed symbol matching. A dash or “Unavailable” means the inputs are missing.`;
 }
+
+function showView(view,focus=false){
+ activeView=view;
+ for(const button of document.querySelectorAll('.view-tabs [role="tab"]')){
+  const selected=button.id===`tab-${view}`;button.setAttribute('aria-selected',String(selected));button.tabIndex=selected?0:-1;
+  document.getElementById(button.getAttribute('aria-controls')).hidden=!selected;
+  if(selected&&focus)button.focus();
+ }
+}
+const viewButtons=[...document.querySelectorAll('.view-tabs [role="tab"]')];
+for(const [index,button]of viewButtons.entries()){
+ button.addEventListener('click',()=>showView(button.id.slice(4)));
+ button.addEventListener('keydown',event=>{
+  let next;if(event.key==='ArrowRight')next=(index+1)%viewButtons.length;else if(event.key==='ArrowLeft')next=(index+viewButtons.length-1)%viewButtons.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=viewButtons.length-1;else return;
+  event.preventDefault();showView(viewButtons[next].id.slice(4),true);
+ });
+}
+function pageControls(id,page,count,onChange){
+ const pages=Math.max(1,count);page=Math.min(page,pages-1);const container=$(id);container.replaceChildren();
+ if(pages===1)return page;
+ const previous=text('button','←'),next=text('button','→');previous.setAttribute('aria-label',`Previous ${id.split('-')[0]} page`);next.setAttribute('aria-label',`Next ${id.split('-')[0]} page`);
+ previous.disabled=page===0;next.disabled=page===pages-1;
+ previous.addEventListener('click',()=>onChange(page-1));next.addEventListener('click',()=>onChange(page+1));container.append(previous,text('span',`${page+1} / ${pages}`),next);return page;
+}
+function renderDetails(){
+ if(!store)return;const p=current(),small=innerWidth<700||innerHeight<650,sourceSize=small?1:3,warningSize=small?1:2,chartSize=small?3:5;
+ allocationPage=pageControls('allocation-pages',allocationPage,Math.ceil(p.accounts.length/chartSize),page=>{allocationPage=page;renderDetails();});
+ $('allocation').replaceChildren();for(const a of p.accounts.slice(allocationPage*chartSize,(allocationPage+1)*chartSize))bar($('allocation'),a.name,a.value,numeric(p.value)&&p.value>0&&numeric(a.value)?a.value/p.value*100:null);
+ $('largest').replaceChildren();for(const r of p.positions.slice(0,5))bar($('largest'),r.name,r.value,r.weight,'violet');
+ const selected=store.snapshots.filter(s=>!$('account').value||s.partition===$('account').value);
+ sourcePage=pageControls('source-pages',sourcePage,Math.ceil(selected.length/sourceSize),page=>{sourcePage=page;renderDetails();});
+ $('provenance').replaceChildren();for(const s of selected.slice(sourcePage*sourceSize,(sourcePage+1)*sourceSize)){
+  const card=text('div','','source-entry');card.append(text('strong',s.partition));
+  const data=text('div','','source-facts');for(const [label,value]of [['Holdings / prices',s.as_of||'Unknown'],['Captured',stamp(s.captured_at)],['Confirmed',stamp(s.confirmedAt)]]){const fact=text('div','');fact.append(text('span',label),text('span',value));data.append(fact);}card.append(data);$('provenance').append(card);
+ }
+ $('warnings-card').hidden=!currentWarnings.length;$('warnings').hidden=!currentWarnings.length;
+ warningPage=pageControls('warning-pages',warningPage,Math.ceil(currentWarnings.length/warningSize),page=>{warningPage=page;renderDetails();});
+ $('warnings').replaceChildren(...currentWarnings.slice(warningPage*warningSize,(warningPage+1)*warningSize).map(w=>text('p',w)));
+}
+window.addEventListener('resize',()=>{if(store){sourcePage=warningPage=allocationPage=0;renderDetails();}});
+
+for(const [button,card]of [['show-accounts','account-chart'],['show-largest','largest-chart']])$(button).addEventListener('click',()=>{
+ for(const [b,c]of [['show-accounts','account-chart'],['show-largest','largest-chart']]){$(b).setAttribute('aria-pressed',String(b===button));$(c).classList.toggle('chart-current',c===card);}
+});

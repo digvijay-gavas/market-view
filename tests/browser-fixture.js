@@ -17,6 +17,14 @@ const docs={
  'snapshot-one':snap('example_one',[holding('synthetic-alpha','SYNTHETIC Alpha',10,1000,1200),holding('synthetic-beta','SYNTHETIC Beta',5,1000,800)]),
  'snapshot-two':snap('example_two',[holding('synthetic-alpha','SYNTHETIC Alpha',5,500,600)])
 };
+// Explicit dense fixture for viewport/stock-list tests; still entirely invented.
+if(window.location?.search?.includes('dense=1')){
+ for(let i=0;i<38;i++)docs['snapshot-one'].tables.holdings.push(holding('synthetic-extra-'+i,'SYNTHETIC Holding '+(i+1),1,100,105));
+ for(const [index,name]of ['example_three','example_four','example_five'].entries()){
+  const id='dense-account-'+index,fileId='dense-snapshot-'+index;
+  children.holdings.push(folder(id,name));children[id]=[file(fileId,'20260101T100000Z__aaaaaaaaaaaa.json')];docs[fileId]=snap(name,[]);
+ }
+}
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
  const url=new URL(input);

@@ -35,6 +35,14 @@ The requested scope is `https://www.googleapis.com/auth/drive.readonly`: read ac
 
 Tokens, loaded data and folder selection stay in memory. Disconnect, reconnect/account selection, reload, expiry, and page restoration clear displayed/private state; pending requests are aborted and stale responses ignored. Only the public web OAuth client ID is saved in localStorage and restored after reload. No tokens, portfolio data or folder selection are persisted. No IndexedDB, portfolio cache, analytics, refresh token, credential file, or service worker is used. Disconnect does not revoke Google's consent or sign out of Google globally. The static build is an allowlist: only `index.html`, `SETUP.html`, `.nojekyll`, and `src/` are deployed.
 
+## Dashboard views
+
+The loaded portfolio uses viewport-sized tabs: **Overview**, **Holdings**, **Allocation**, **Data**, and **About**. The page itself does not scroll. Holdings has an independently scrollable table with sticky column headings and a keyboard-focusable list region. Account selection remains available above every view.
+
+Capture details and warnings are paginated instead of extending the page. Narrow screens show one allocation chart at a time with Accounts / Largest holdings controls, and fewer account-source entries per page. Tab navigation supports Left/Right arrows, Home and End. The large introduction is removed after loading data; setup instructions remain a separate help page.
+
+The synthetic dense preview (`http://127.0.0.1:5174/?dense=1`) has 40 invented holdings and five accounts for layout checks. All five views were checked at desktop and narrow-screen sizes for page overflow and clipped panel content; only the holdings list has internal scrolling. No real portfolio data is part of that fixture.
+
 ## Calculations and limits
 
 - Value: source `current_value`, otherwise `qty × ltp`; cost: `invested`, otherwise `qty × avg_price`. Zero is a real number; null/absent is missing.

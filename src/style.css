@@ -3,3 +3,73 @@
 @media(max-width:1050px){.stats{grid-template-columns:repeat(3,1fr)}.section-head{align-items:flex-start;flex-direction:column}.connection{gap:35px}.topbar{padding:18px 24px}}
 @media(max-width:700px){.intro{padding-top:35px}h1{letter-spacing:-1px}.connection,.charts{grid-template-columns:1fr}.card,.connection{padding:22px}.stats{grid-template-columns:repeat(2,1fr)}.stats .stat:last-child{grid-column:1/-1}.row{width:100%}.row>*{flex:1}.row input{flex-basis:100%}.pill{display:none}.section-head input{max-width:none}.bar-label{font-size:11px}footer{flex-direction:column}.topbar{gap:12px}main{padding:0 16px 40px}}
 @media(prefers-reduced-motion:no-preference){button{transition:background .15s,border-color .15s}}
+
+/* Each portfolio view occupies the remaining viewport; only holdings can scroll. */
+.intro{padding:28px 0 20px}.intro h1{font-size:clamp(32px,4vw,48px);margin-bottom:15px}.connection{padding:26px;gap:36px}
+.app-loaded body{height:100dvh;overflow:hidden;display:flex;flex-direction:column}
+.app-loaded .intro{display:none}
+.app-loaded .topbar{flex:none;min-height:54px;padding:8px 24px}
+.app-loaded main{width:100%;flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:8px 24px 10px}
+.app-loaded footer{width:100%;flex:none;padding:5px 24px;font-size:10px;line-height:16px}
+.app-loaded .status{flex:none;min-height:0;max-height:32px;padding:0;margin:0;font-size:11px;line-height:16px;overflow:hidden}
+#dashboard{display:flex;flex-direction:column;gap:10px;min-height:0;flex:1}
+#dashboard>.section-head{flex:none;flex-direction:row;align-items:center;margin:0;gap:12px}
+#dashboard>.section-head h2{font-size:20px;margin:0 0 3px}#dashboard>.section-head .eyebrow{display:none}
+#dashboard .row{width:auto;gap:6px}#dashboard .row>*{flex:none;font-size:12px;padding:7px 10px;min-height:34px}
+#freshness{font-size:10px;line-height:14px;margin:0}
+.view-tabs{display:flex;flex:none;gap:6px;border-bottom:1px solid var(--line);padding-bottom:6px}
+.view-tabs button{min-height:36px;padding:7px 17px;font-size:12px;border-color:transparent;background:transparent;border-radius:6px;color:var(--muted)}
+.view-tabs button[aria-selected=true]{background:#283e34;color:var(--accent);border-color:#496454}
+.data-alert{flex:none;font-size:11px;line-height:15px;color:#e3c997;background:#2a251a;border:1px solid #78643b;border-radius:5px;padding:5px 10px;margin:0}
+.view-panel{min-height:0;flex:1;display:flex;flex-direction:column;gap:12px;overflow:hidden}
+#view-overview .stats{flex:none;margin:0;grid-template-columns:repeat(5,minmax(0,1fr))}
+#view-overview .stat{padding:20px 16px}#view-overview .stat .eyebrow{min-height:26px;font-size:9px}
+.overview-note{margin:0;flex:1;max-height:210px;padding:25px}.overview-note h3{margin-bottom:12px}.overview-note p{max-width:750px}
+.view-panel .card{margin-bottom:0;min-height:0}
+.positions{display:flex;flex-direction:column;flex:1;gap:0;padding:20px}
+.positions>.section-head{flex:none;flex-direction:row;align-items:center;margin:0 0 12px}.positions h3{margin:0;font-size:18px}.positions .eyebrow{display:none}
+.stock-list{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.stock-list th{position:sticky;top:0;z-index:1;background:var(--panel)}
+#table-note{flex:none;font-size:10px;line-height:14px;margin-top:8px}
+.charts{min-height:0;flex:1;margin:0;gap:12px}.charts .card{display:flex;flex-direction:column;padding:22px}
+.charts h3{font-size:20px;margin-bottom:20px}.charts .eyebrow{margin-bottom:6px}
+.charts .bar-row{margin-bottom:20px}.charts .bar-track{height:7px}
+.allocation-switch{display:none}
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:8px;font-size:11px;color:var(--muted)}
+.pager:empty{display:none}.pager button{min-height:28px;padding:2px 9px;font-size:15px}.pager span{white-space:nowrap}
+#allocation-pages{margin-top:auto;padding-top:8px}
+.source-card{flex:1;display:flex;flex-direction:column;padding:18px 22px}
+.source-card>.section-head,.warning-card>.section-head{margin:0 0 10px;flex-direction:row;align-items:center}.source-card h3,.warning-card h3{font-size:17px;margin:0}.source-card .eyebrow{margin-bottom:4px}
+#provenance{margin:0;min-height:0;display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:8px}
+.source-entry{border-top:1px solid var(--line);padding-top:8px;display:grid;grid-template-columns:100px 1fr;gap:12px;align-items:center}
+.source-entry>strong{font-size:13px;font-weight:550}.source-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px}.source-facts span{display:block}.source-facts span:first-child{font-size:10px;color:var(--muted)}
+.warning-card{flex:none;padding:14px 22px}.warning-card .notice{border:0;background:none;padding:0;font-size:12px;line-height:17px}.warning-card p{margin-bottom:5px}
+.about-card{padding:26px;max-width:100%;height:100%}.about-card p{max-width:950px;font-size:14px;line-height:1.6}.about-card .eyebrow{font-size:10px}.about-card h3{margin-bottom:20px}
+#folder-panel{margin:0}#folder-panel .section-head{margin:0 0 12px;flex-direction:row;align-items:center}
+@media(max-width:1050px){
+ #view-overview .stats{grid-template-columns:repeat(3,minmax(0,1fr))}#view-overview .stat{padding:14px 16px}#view-overview .stat .eyebrow{min-height:16px;margin-bottom:5px}#view-overview .stat strong{font-size:25px}#view-overview .stat .fine{font-size:10px;margin-top:4px}
+ #dashboard>.section-head{align-items:flex-start}#dashboard .row{justify-content:flex-end}#dashboard .row>*{font-size:11px;padding:6px 8px}
+}
+@media(max-width:700px){
+ .app-loaded main{padding:8px 12px}.app-loaded .topbar{min-height:48px;padding:6px 12px}.app-loaded .brand{font-size:22px}.app-loaded footer{padding:3px 12px;font-size:9px;line-height:14px}.app-loaded footer span{display:none}
+ .app-loaded #disconnect{min-height:32px;font-size:11px;padding:5px 10px}#dashboard{gap:8px}
+ #dashboard>.section-head{flex-direction:column;gap:6px}#dashboard>.section-head>div{width:100%}#dashboard>.section-head h2{font-size:18px}#dashboard .row{justify-content:flex-start;flex-wrap:nowrap}#dashboard .row>*{min-height:30px;font-size:10px;padding:5px 7px}#account{min-width:0;max-width:45%}
+ .view-tabs{gap:2px;padding-bottom:5px}.view-tabs button{padding:5px 9px;min-height:32px;font-size:11px;flex:1}.data-alert{font-size:10px;line-height:13px;padding:4px 7px}
+ #view-overview .stats{grid-template-columns:repeat(2,minmax(0,1fr))}#view-overview .stat{padding:12px}#view-overview .stat strong{font-size:24px}#view-overview .stat .eyebrow{font-size:8px;min-height:12px}#view-overview .stat:last-child{grid-column:1/-1}#view-overview .stat .fine{font-size:10px;line-height:13px}
+ .overview-note{padding:17px;max-height:none}.overview-note .eyebrow{display:none}.overview-note h3{font-size:17px;margin-bottom:8px}.overview-note p{font-size:12px;line-height:16px;margin-bottom:8px}.overview-note .fine{font-size:10px;line-height:14px}
+ .allocation-switch{display:flex;gap:6px;flex:none}.allocation-switch button{font-size:11px;padding:5px 12px;min-height:30px}.allocation-switch button[aria-pressed=true]{background:#283e34;color:var(--accent)}
+ .charts{display:flex;gap:0}.charts .card{display:none;padding:20px}.charts .card.chart-current{display:flex;flex:1}.charts h3{font-size:18px;margin-bottom:20px}.charts .bar-row{margin-bottom:24px}.bar-label{font-size:12px}
+ .positions{padding:12px}.positions>.section-head{gap:8px;margin-bottom:9px}.positions h3{font-size:15px}.positions .section-head input{font-size:12px;min-height:34px;padding:7px 9px;width:50%}.positions th,.positions td{padding:11px 9px}#table-note{font-size:9px;line-height:12px}
+ .source-card{padding:16px}.source-entry{grid-template-columns:1fr;gap:10px;padding-top:10px}.source-entry>strong{font-size:15px}.source-facts{grid-template-columns:1fr;gap:8px;font-size:13px}.source-facts>div{display:flex;justify-content:space-between;gap:8px}.source-facts span:first-child{font-size:11px}.source-card .eyebrow{font-size:9px}.source-card h3{font-size:16px}.source-card>.section-head{gap:8px}
+ .warning-card{padding:12px 16px}.warning-card h3{font-size:15px}.warning-card .notice{font-size:11px;line-height:15px}.pager{gap:5px;font-size:10px}.pager button{padding:2px 7px;min-height:27px}
+ .about-card{padding:18px}.about-card h3{font-size:20px;margin-bottom:15px}.about-card p{font-size:12px;line-height:1.5;margin-bottom:12px}.about-card .fine{font-size:10px}
+ .intro{padding:20px 0 12px}.intro h1{font-size:30px;margin-bottom:12px}.intro h1 br{display:none}.intro .muted{font-size:13px;line-height:18px}.intro .eyebrow{font-size:9px;margin-bottom:9px}.connection{gap:16px;padding:18px}.connection h2{font-size:22px}.connection p{font-size:12px;line-height:17px}.connection .fine{font-size:10px;line-height:15px}.connection .eyebrow{display:none}.connection .connect-form .fine{margin:7px 0 10px}.status{padding:0 0 10px;font-size:11px;min-height:0}
+}
+@media(max-height:650px){
+ #dashboard{gap:6px}.app-loaded main{gap:4px}.app-loaded footer{display:none}.app-loaded .topbar{min-height:42px;padding-top:4px;padding-bottom:4px}
+ #view-overview .stat{padding:9px 12px}#view-overview .stat strong{font-size:21px}#view-overview .stat .fine{font-size:9px;margin-top:2px}#view-overview .stat .eyebrow{margin-bottom:3px;min-height:12px}
+ .overview-note{padding:12px}.overview-note h3{font-size:16px;margin-bottom:5px}.overview-note p{font-size:11px;line-height:14px;margin-bottom:5px}.overview-note .eyebrow{display:none}
+ .charts .card{padding:14px}.charts h3{font-size:17px;margin-bottom:12px}.charts .bar-row{margin-bottom:12px}.bar-label{font-size:11px;margin-bottom:4px}
+ .about-card{padding:16px}.about-card h3{font-size:18px;margin-bottom:10px}.about-card p{font-size:11px;line-height:1.4;margin-bottom:9px}
+ .source-card{padding:12px}.source-entry{padding-top:6px;gap:6px}.source-facts{gap:5px}.warning-card{padding:10px 12px}
+}
