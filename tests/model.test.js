@@ -58,3 +58,13 @@ test('absent cash is zero, missing cash is unavailable and other liquid names ar
  const p=buildPortfolio([snapshot('one',[holding('liquidbees',1,10,12)])]);assert.equal(p.cashEquivalent,0);assert.equal(p.otherHoldingsValue,12);
  const missing=buildPortfolio([snapshot('one',[holding('LIQUIDCASE',1,10,null),holding('stock',1,20,30)])]);assert.equal(missing.cashEquivalent,null);assert.equal(missing.otherHoldingsValue,30);assert.equal(missing.value,null);
 });
+
+test('GOLDCASE separates gold from cash and other holdings without double counting',()=>{
+ const snapshots=[snapshot('one',[holding('zerodha-gold-etf',10,80,100),holding('zerodha-nifty-d-rate-liquid-etf',5,45,50),holding('stock',1,20,30)]),snapshot('two',[holding('GOLDCASE',2,15,20)])];
+ const p=buildPortfolio(snapshots);assert.equal(p.goldValue,120);assert.equal(p.cashEquivalent,50);assert.equal(p.otherHoldingsValue,30);assert.equal(p.value,200);assert.equal(p.goldWeight,60);
+ const account=buildPortfolio(snapshots,[],'one');assert.equal(account.goldValue,100);assert.equal(account.cashEquivalent,50);assert.equal(account.otherHoldingsValue,30);
+});
+test('missing gold is unavailable; other gold instruments are not guessed',()=>{
+ const p=buildPortfolio([snapshot('one',[holding('goldbees',1,20,30)])]);assert.equal(p.goldValue,0);assert.equal(p.otherHoldingsValue,30);
+ const unknown=buildPortfolio([snapshot('one',[holding('zerodha-gold-etf',1,20,null)])]);assert.equal(unknown.goldValue,null);assert.equal(unknown.goldWeight,null);
+});

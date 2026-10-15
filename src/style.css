@@ -83,3 +83,9 @@
 @media(max-width:700px),(max-height:650px){#view-overview .cash-detail{gap:6px}#view-overview .cash-share{font-size:15px;padding:2px 6px}}
 
 #view-overview .stat:last-child{grid-column:auto}
+
+#view-overview .gold-stat{background:linear-gradient(145deg,#40351d,#2c281e);box-shadow:inset 0 3px 0 #e7c671,inset 0 0 0 1px #8f783f}
+#view-overview .gold-stat .eyebrow{color:#f1d99c;font-weight:750}
+#view-overview .gold-stat>strong{color:#ffe8b0;font-weight:650}
+#view-overview .gold-stat .cash-detail{color:#e6d5af}
+#view-overview .gold-stat .cash-share{background:#f1d18a;color:#382708}
