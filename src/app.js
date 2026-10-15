@@ -1,6 +1,9 @@
 import {buildPortfolio,numeric} from './model.js';
 import {DriveReader,folderId} from './drive.js';
+import {restoreClientId,saveClientId} from './preferences.js';
 const $=id=>document.getElementById(id);
+$('client-id').value=restoreClientId();
+$('client-id').addEventListener('input',()=>saveClientId($('client-id').value.trim()));
 const money=x=>numeric(x)?new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(x):'Unavailable';
 const pct=x=>numeric(x)?`${x>=0?'+':''}${x.toFixed(2)}%`:'—';
 const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:3}).format(x):'—';

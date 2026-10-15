@@ -17,7 +17,8 @@ const docs={
  'snapshot-one':snap('example_one',[holding('synthetic-alpha','SYNTHETIC Alpha',10,1000,1200),holding('synthetic-beta','SYNTHETIC Beta',5,1000,800)]),
  'snapshot-two':snap('example_two',[holding('synthetic-alpha','SYNTHETIC Alpha',5,500,600)])
 };
-window.fetch=async(input,options)=>{
+window.fetch=async function(input,options){
+ if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
  const url=new URL(input);
  if(url.origin!=='https://www.googleapis.com'||options.headers.Authorization!=='Bearer synthetic-ui-token')throw new Error('Unexpected test request');
  if(url.pathname==='/drive/v3/files') {

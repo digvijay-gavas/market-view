@@ -31,3 +31,20 @@ test('incomplete Drive listings fail rather than silently showing partial totals
  const d=new DriveReader('synthetic',{fetcher:async()=>Response.json({files:[],incompleteSearch:true})});
  await assert.rejects(d.findStores(),/incomplete/);
 });
+
+// Native browser fetch requires its Window/global receiver. Arrow-function mocks
+// did not exercise the production default transport's calling context.
+test('default browser fetch keeps its global receiver during Drive folder search',async()=>{
+ const originalFetch=globalThis.fetch;
+ const requests=[];
+ globalThis.fetch=async function(url,options){
+  assert.equal(this,globalThis,'native fetch must be called with the global receiver');
+  requests.push({url,options});
+  return Response.json({files:[{id:'synthetic-folder',name:'market-data'}]});
+ };
+ try {
+  const rows=await new DriveReader('synthetic-default-token').findStores();
+  assert.equal(rows[0].id,'synthetic-folder');assert.equal(requests.length,1);
+  assert.equal(requests[0].options.headers.Authorization,'Bearer synthetic-default-token');
+ } finally {globalThis.fetch=originalFetch;}
+});

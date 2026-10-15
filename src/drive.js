@@ -10,7 +10,8 @@ export function folderId(input) {
   throw new Error('Paste a Google Drive folder link or folder ID.');
 }
 export class DriveReader {
-  constructor(token,{fetcher=fetch,signal}={}) { this.token=token;this.fetcher=fetcher;this.signal=signal; }
+  // Native browser fetch requires the Window receiver when stored as a method.
+  constructor(token,{fetcher=globalThis.fetch.bind(globalThis),signal}={}) { this.token=token;this.fetcher=fetcher;this.signal=signal; }
   async get(path,params={}) {
     const url=new URL(API+path);for(const [k,v] of Object.entries(params)) url.searchParams.set(k,v);
     let response;
