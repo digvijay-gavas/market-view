@@ -258,10 +258,11 @@ function initializePortfolio(){
  }else status('Connect Google Drive to load your Market data automatically.');
 }
 async function unlockApp(){
+ if($('unlock').disabled)return;
  $('unlock').disabled=true;
  try{
   const clientId=await decryptClientId(oauthConfig,$('app-pin').value);
-  $('app-pin').value='';$('client-id').value=clientId;$('client-id').readOnly=true;
+  $('app-pin').value='';$('client-id').value=clientId;$('client-id').readOnly=true;$('client-configuration').hidden=true;
   $('unlock-panel').hidden=true;$('connect-panel').hidden=false;initializePortfolio();
  }catch(error){$('app-pin').value='';status(error.message,true);$('app-pin').focus();}
  finally{$('unlock').disabled=false;}
