@@ -52,7 +52,7 @@ async function action(work) {
   if(!reader||Date.now()>=expiry){disconnect('Connect to Google Drive to continue.');return;}
   const attempt=generation;busy=true;
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=true;
-  try {await work(attempt);}catch(e){if(attempt!==generation||e.name==='AbortError')return;if(e.authExpired)disconnect(e.message);else status(e.message||'Could not load Drive data.',true);}
+  try {await work(attempt);}catch(e){if(attempt!==generation||e.name==='AbortError')return;if(e.authExpired)disconnect(e.message);else {if(!store)$('folder-panel').hidden=false;status(e.message||'Could not load Drive data.',true);}}
   finally{if(attempt===generation){busy=false;for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;}}
 }
 async function openFolder(id) {
