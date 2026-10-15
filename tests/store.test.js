@@ -30,3 +30,11 @@ test('repeat store checks reuse unchanged bodies and reflect modified and delete
  vm.runInNewContext("children.holdings=children.holdings.filter(row=>row.id!=='account-two')",context);
  const after=await reader.load('synthetic-root');assert.equal(buildPortfolio(after.snapshots,[]).value,2200);assert.equal(after.snapshots.length,1);assert.equal(downloads,4);
 });
+
+test('Drive traversal reads P&L purchase lots and exposes a reconciled annualised return',async()=>{
+ const context={window:{location:{search:'?xirr=1'}},URL,Response};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ const reader=new DriveReader('synthetic-ui-token',{fetcher:(...args)=>context.window.fetch(...args)});
+ const store=await reader.load('synthetic-root');assert.equal(store.reports.length,2);
+ const p=buildPortfolio(store.snapshots,store.dividends,'',store.reports);assert.ok(Math.abs(p.xirr-4)<1e-8);
+ assert.ok(Math.abs(buildPortfolio(store.snapshots,store.dividends,'example_two',store.reports).xirr-20)<1e-8);
+});

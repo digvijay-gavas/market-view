@@ -27,6 +27,15 @@ if(window.location?.search?.includes('dense=1')){
 }
 if(window.location?.search?.includes('revision=2')){children['account-one'][0].version='2';docs['snapshot-one'].tables.holdings[0].current_value=1400;}
 if(window.location?.search?.includes('cash=1'))docs['snapshot-one'].tables.holdings.push(holding('zerodha-nifty-d-rate-liquid-etf','LIQUIDCASE',10,990,1000));
+if(window.location?.search?.includes('xirr=1')){
+ children['synthetic-root'].push(folder('pnl','groww.pnl_report'));children.pnl=[];
+ docs.catalog.datasets['groww.pnl_report']={version:1,semantics:'cumulative'};
+ for(const [index,partition]of ['example_one','example_two'].entries()){
+  const accountId='pnl-account-'+index,id='pnl-report-'+index;
+  children.pnl.push(folder(accountId,partition));children[accountId]=[file(id,'20260101T100000Z__aaaaaaaaaaaa.json')];
+  docs[id]={...snap(partition,[]),dataset:'groww.pnl_report',tables:{open_lots:docs['snapshot-'+(index===0?'one':'two')].tables.holdings.map((r,i)=>({stock_name:r.name,isin:'SYNTHETIC'+i,quantity:r.qty,buy_value:r.invested,buy_date:'2025-01-01'}))}};
+ }
+}
 let mediaDownloads=0;
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");

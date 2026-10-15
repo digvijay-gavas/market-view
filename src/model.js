@@ -1,3 +1,4 @@
+import {openHoldingsXirr} from './xirr.js';
 // Market store v1 reader. All fixtures in tests are synthetic.
 export const SNAPSHOT = /^\d{8}T\d{6}Z__[0-9a-f]{12}\.json$/;
 export const numeric = x => typeof x === 'number' && Number.isFinite(x);
@@ -7,6 +8,11 @@ export const percentage = (part, base) => numeric(part) && numeric(base) && base
 
 export function validateSnapshot(doc, dataset, partition) {
   if (!doc || doc.store_version !== 1 || doc.schema_version !== 1 || doc.dataset !== dataset || doc.partition !== partition || !Number.isFinite(Date.parse(doc.captured_at)) || !/(Z|[+-]\d{2}:\d{2})$/.test(doc.captured_at) || !/^sha256:[0-9a-f]{64}$/.test(doc.content_hash) || (doc.as_of !== null && (typeof doc.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(doc.as_of))) || !doc.tables || typeof doc.tables !== 'object') throw new Error('Invalid or unsupported snapshot envelope');
+  if(dataset==='groww.pnl_report'){
+    if(!Array.isArray(doc.tables.open_lots))throw new Error('Missing open lots');
+    for(const row of doc.tables.open_lots){if(!row||typeof row.isin!=='string'||!row.isin||typeof row.stock_name!=='string')throw new Error('Invalid purchase lot');for(const key of ['quantity','buy_value'])if(row[key]!=null&&(!numeric(row[key])||row[key]<0))throw new Error('Invalid purchase amount');}
+    return doc;
+  }
   const table = dataset === 'groww.live_holdings' ? 'holdings' : 'credits';
   if (!Array.isArray(doc.tables[table])) throw new Error(`Missing ${table} table`);
   for (const row of doc.tables[table]) {
@@ -35,7 +41,7 @@ export async function newestValid(files, read, dataset, partition, onSkip = () =
   return null;
 }
 
-export function buildPortfolio(snapshots, dividendSnapshots = [], account = '') {
+export function buildPortfolio(snapshots, dividendSnapshots = [], account = '', reports = []) {
   const selected = snapshots.filter(s => !account || s.partition === account);
   const grouped = new Map();
   const accounts = selected.map(s => {
@@ -70,7 +76,8 @@ export function buildPortfolio(snapshots, dividendSnapshots = [], account = '') 
     credits.set(key,r);
   }
   const weights=positions.map(p=>percentage(p.value,value));
-  return {cashEquivalent,otherHoldingsValue,cashWeight:percentage(cashEquivalent,value),accounts,positions:positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
+  const annualised=openHoldingsXirr(selected,reports);
+  return {xirr:numeric(annualised.rate)?annualised.rate*100:null,xirrReason:annualised.reason,cashEquivalent,otherHoldingsValue,cashWeight:percentage(cashEquivalent,value),accounts,positions:positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
 }
 
 export function confirmationAt(snapshot, logs) {

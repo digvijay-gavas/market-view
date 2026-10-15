@@ -76,20 +76,23 @@ export class DriveReader {
     onProgress('Reading store catalog…');
     const catalog=await this.readJSON(catalogs[0]);
     if(catalog.store_version!==1||catalog.datasets?.['groww.live_holdings']?.version!==1||catalog.datasets['groww.live_holdings'].semantics!=='latest')throw new Error('This store version is not supported. Expected Market v1 holdings snapshots.');
-    const snapshots=[],dividends=[],logs=[];let reportAccounts=[];
+    const snapshots=[],dividends=[],logs=[],reports=[];let reportAccounts=[];
     const skip=()=>warnings.push('Skipped an invalid, unsupported or incomplete snapshot; a valid older capture may be shown.');
     for(const dataset of ['groww.live_holdings','groww.dividend_report','groww.pnl_report']) {
       if(!datasets.has(dataset))continue;
       const partitions=await this.children(datasets.get(dataset));
       const groups=new Map();
       for(const p of partitions.filter(p=>p.mimeType===FOLDER)) {if(!/^[a-z0-9_-]+$/.test(p.name))continue;const ids=groups.get(p.name)||[];ids.push(p.id);groups.set(p.name,ids);}
-      if(dataset==='groww.pnl_report') {reportAccounts=[...groups.keys()];continue;}
+      if(dataset==='groww.pnl_report')reportAccounts=[...groups.keys()];
       for(const [partition,ids] of groups) {
         onProgress(`Reading ${dataset==='groww.live_holdings'?'holdings':'dividends'} · ${partition}…`);
         const files=(await this.children(ids)).filter(f=>SNAPSHOT.test(f.name));
         if(dataset==='groww.live_holdings') {
           const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
           if(doc)snapshots.push(doc);else warnings.push(`No readable holdings capture for ${partition}; account excluded from totals.`);
+        } else if(dataset==='groww.pnl_report'){
+          if(catalog.datasets?.[dataset]?.version!==1){warnings.push('P&L lot schema unsupported; XIRR unavailable.');continue;}
+          for(const file of files)try{reports.push(validateSnapshot(await this.readJSON(file),dataset,partition));}catch(error){if(error.authExpired||error.fatal)throw error;skip();}
         } else {
           if(catalog.datasets?.[dataset]?.version!==1||catalog.datasets[dataset].semantics!=='cumulative') {warnings.push('Dividend report schema is unsupported; credits omitted.');continue;}
           const hashes=new Set();
@@ -116,6 +119,6 @@ export class DriveReader {
     const missing=reportAccounts.filter(a=>!snapshots.some(s=>s.partition===a));
     if(missing.length)warnings.push(`Report-only accounts excluded (no holdings capture): ${missing.join(', ')}. This reader does not reconstruct lots from P&L workbooks.`);
     if(!snapshots.length)throw new Error('No readable holdings snapshots in this store. Publish groww.live_holdings captures from Market first.');
-    return {root,snapshots,dividends,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
+    return {root,snapshots,dividends,reports,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
   }
 }

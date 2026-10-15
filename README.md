@@ -55,7 +55,7 @@ The synthetic dense preview (`http://127.0.0.1:5174/?dense=1`) has 40 invented h
 - Unrealised P&L: value minus cost. Return: P&L / cost. Group positions by exact Groww slug, never fuzzy names.
 - Allocation and top-five concentration use captured market value. Combined capture dates can differ and are shown per account.
 - Dividend credits are deduplicated by `(account, isin, ex_date, shares, amount)` across all report dates; shown separately and with partial-coverage warnings.
-- Captured prices are **not live**. Refresh rereads Drive. No daily price change, balance history, XIRR, realised-return reconstruction, tax estimates, cash, or total net worth is fabricated.
+- Captured prices are **not live**. Refresh rereads Drive. No daily price change, balance history, realised-return reconstruction, tax estimates or total net worth is fabricated.
 - Confirmation logs identify rechecks of the same content hash; capture/as-of timestamps remain distinct. Data freshness reflects snapshots and logs, not quote freshness.
 
 ## GitHub Pages
@@ -92,3 +92,9 @@ Credentials are never written to IndexedDB. Disconnect/account switching clears 
 ## Cash equivalent on Overview
 
 The user-designated LIQUIDCASE reserve is shown separately as Cash equivalent, using its captured current value and the selected account filter. The exact known Groww slug is `zerodha-nifty-d-rate-liquid-etf`; an exact LIQUIDCASE symbol/name is also recognized. Other liquid funds are not guessed. It remains a holding and is included once in total portfolio value, invested cost and return. Other holdings excludes this reserve. This is a display classification, not a bank balance. Missing values remain unavailable; no matching holding yields zero.
+
+## Open holdings XIRR
+
+Overview shows annualised money-weighted return for the selected current holdings, including LIQUIDCASE. The newest available P&L report period on or before the holdings valuation date supplies open purchase lots. Matching uses the original Market public Groww/NSE identifier registry to join by exact ISIN; otherwise it requires an exact company name (case and whitespace normalized), unambiguous ISIN, matching quantities and matching invested cost (within report rounding tolerance). Missing accounts, dates, values, mismatches or mixed valuation dates yield Unavailable with a reason. No buy dates are invented. Captured value is the terminal positive cash flow; dated purchases are negative. Day counts use 365 days per year. Closed positions and dividends are excluded, so this is explicitly not a lifetime account return. Lot files participate in the same versioned browser cache.
+
+Calculation convention: [Microsoft XIRR reference](https://learn.microsoft.com/en-us/office/vba/api/excel.worksheetfunction.xirr). This implementation restricts supported flows to dated open purchases and one terminal captured value.

@@ -38,5 +38,5 @@ export function fileRevision(file){
 }
 
 export function samePortfolio(left,right){
- return ['root','snapshots','dividends','warnings'].every(key=>JSON.stringify(left?.[key])===JSON.stringify(right?.[key]));
+ return ['root','snapshots','dividends','reports','warnings'].every(key=>JSON.stringify(left?.[key])===JSON.stringify(right?.[key]));
 }
