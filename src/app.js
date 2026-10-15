@@ -126,7 +126,17 @@ function render() {
   $('overview-detail').textContent=`${money(p.otherHoldingsValue)} in other holdings; LIQUIDCASE is shown separately as your cash equivalent and remains included in total value. ${p.positions.length} holdings across ${p.accounts.length} account${p.accounts.length===1?'':'s'}. Saved as of ${dates.join(' · ')}.`;
   $('stats').replaceChildren();
   const stats=[['CAPTURED MARKET VALUE',money(p.value),`${p.positions.length} holdings · ${p.accounts.length} accounts`],['INVESTED',money(p.cost),'Cost of the captured holdings'],['UNREALISED P&L',money(p.pnl),pct(p.returnPct)],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['SAVED DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'All available report dates · separate from P&L':'No saved reports for these accounts']];
-  for(const [label,value,note]of stats){const c=text('section','','stat');c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):''),text('p',note,'fine'));$('stats').append(c);}
+  for(const [label,value,note]of stats){
+    const cash=label==='CASH EQUIVALENT',c=text('section','',cash?'stat cash-stat':'stat');
+    c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):''));
+    if(cash){
+      c.setAttribute('aria-label','LIQUIDCASE cash equivalent');
+      const detail=text('p','','fine cash-detail');
+      detail.append(text('span',numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'%':'—','cash-share'),text('span',numeric(p.cashWeight)?'of portfolio':'share unavailable'));
+      c.append(detail);
+    }else c.append(text('p',note,'fine'));
+    $('stats').append(c);
+  }
   renderDetails();
   renderPositions();
 }

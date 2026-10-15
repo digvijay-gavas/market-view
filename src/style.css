@@ -73,3 +73,11 @@
  .about-card{padding:16px}.about-card h3{font-size:18px;margin-bottom:10px}.about-card p{font-size:11px;line-height:1.4;margin-bottom:9px}
  .source-card{padding:12px}.source-entry{padding-top:6px;gap:6px}.source-facts{gap:5px}.warning-card{padding:10px 12px}
 }
+
+/* Cash reserve is a distinct, calm highlight for an always-on display. */
+#view-overview .cash-stat{background:linear-gradient(145deg,#203c32,#192b25);box-shadow:inset 0 3px 0 #97dfb9,inset 0 0 0 1px #4d8068}
+#view-overview .cash-stat .eyebrow{color:#c2eed5;font-weight:750}
+#view-overview .cash-stat>strong{color:#d4ffe7;font-weight:650}
+#view-overview .cash-detail{display:flex;align-items:center;gap:8px;color:#c0d9cb}
+#view-overview .cash-share{display:inline-block;flex:none;padding:3px 7px;border-radius:5px;background:#a9ebc5;color:#103324;font-size:17px;line-height:1.1;font-weight:800;font-variant-numeric:tabular-nums}
+@media(max-width:700px),(max-height:650px){#view-overview .cash-detail{gap:6px}#view-overview .cash-share{font-size:15px;padding:2px 6px}}
