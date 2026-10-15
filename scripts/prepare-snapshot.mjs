@@ -1,0 +1,20 @@
+import {readFile,mkdir,writeFile} from 'node:fs/promises';
+import {resolve,relative,isAbsolute} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {validateSnapshot} from '../src/model.js';
+const [input,output]=process.argv.slice(2);
+if(!input||!output)throw new Error('Usage: node scripts/prepare-snapshot.mjs PRIVATE_INPUT.json PRIVATE_OUTPUT_DIRECTORY (outside this repo)');
+const root=resolve(fileURLToPath(new URL('../',import.meta.url)));
+const dest=resolve(output),rel=relative(root,dest);
+if(!rel||(!rel.startsWith('..')&&!isAbsolute(rel)))throw new Error('Write private output outside the source repository.');
+const doc=JSON.parse(await readFile(input,'utf8'));
+if(!/^[a-z0-9_-]+$/.test(doc.partition))throw new Error('partition must use lowercase letters, digits, underscores or hyphens');
+doc.content_hash='sha256:'+'0'.repeat(64);
+validateSnapshot(doc,'groww.live_holdings',doc.partition);
+function canonical(value){if(Array.isArray(value))return value.map(canonical);if(value&&typeof value==='object')return Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])]));return value;}
+const payload=Object.fromEntries(['dataset','schema_version','partition','as_of','meta','tables'].map(k=>[k,doc[k]??{}]));
+const hash=createHash('sha256').update(JSON.stringify(canonical(payload))).digest('hex');doc.content_hash='sha256:'+hash;
+const stamp=new Date(doc.captured_at).toISOString().replace(/[-:]/g,'').slice(0,15)+'Z';
+await mkdir(dest,{recursive:true});await writeFile(resolve(dest,`${stamp}__${hash.slice(0,12)}.json`),JSON.stringify(doc,null,2)+'\n',{flag:'wx'});
+console.log('Validated snapshot written to the private output directory. Upload it to the matching Drive account folder.');

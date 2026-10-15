@@ -1,0 +1,37 @@
+name: Deploy Pages (explicit manual approval)
+on:
+  workflow_dispatch:
+    inputs:
+      publish_site:
+        description: 'Publish this frontend as a Pages site (usually public even from private repos)'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: inputs.publish_site == true
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Publish static frontend
+        id: deployment
+        uses: actions/deploy-pages@v4

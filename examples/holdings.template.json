@@ -1,0 +1,20 @@
+{
+  "store_version": 1,
+  "schema_version": 1,
+  "dataset": "groww.live_holdings",
+  "partition": "example_account",
+  "source": "groww",
+  "method": "manual",
+  "captured_at": "2026-01-01T10:00:00Z",
+  "as_of": "2026-01-01",
+  "writer": "synthetic-example",
+  "producer": "market-dashboard-template/1",
+  "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "meta": { "synthetic": true },
+  "tables": {
+    "holdings": [
+      { "groww_slug": "synthetic-alpha", "name": "SYNTHETIC Alpha", "qty": 10, "invested": 1000, "avg_price": 100, "ltp": 110, "current_value": 1100 },
+      { "groww_slug": "synthetic-beta", "name": "SYNTHETIC Beta", "qty": 5, "invested": 1000, "avg_price": 200, "ltp": 180, "current_value": 900 }
+    ]
+  }
+}

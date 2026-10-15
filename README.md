@@ -1,0 +1,70 @@
+# Market Dashboard
+
+An independent, read-only static investment dashboard. It reads a Market v1 store directly from Google Drive with Google Identity Services, calculates in the browser, and works on GitHub Pages. The original Python server is not used.
+
+Repository: [digvijay-gavas/market-view](https://github.com/digvijay-gavas/market-view). After Pages is enabled and deployed, the site address is `https://digvijay-gavas.github.io/market-view/`. Its Google OAuth JavaScript origin is `https://digvijay-gavas.github.io` (no repository path).
+
+## Run locally
+
+Node.js 22+ is needed only for development and checks. There are no package dependencies.
+
+```sh
+npm test
+npm run build
+npm run dev
+```
+
+Open http://127.0.0.1:5173. Use a Google **Web application** OAuth client with that exact Authorized JavaScript origin. Enable Drive API, configure consent/test users, and paste the public client ID into the page. Never use the original desktop client secret. Full browser instructions are in [SETUP.html](SETUP.html).
+
+## Data and permissions
+
+Choose the existing `market-data` folder, or any root folder with this layout:
+
+```text
+_schema/catalog.json
+groww.live_holdings/<account>/YYYYMMDDTHHMMSSZ__<12 lowercase hex>.json
+groww.dividend_report/<account>/YYYYMMDDTHHMMSSZ__<12 lowercase hex>.json  # optional
+_log/<writer>.jsonl                                                  # optional
+```
+
+The store catalog and envelope must be v1. Account partitions are discovered from Drive, not bundled in code. Duplicate Drive folders are merged. Snapshots accept only exact filenames; incomplete/conflict files are ignored. Latest valid captures win per holdings account, including empty captures. Cumulative dividend reports are deduplicated. Unsupported or malformed snapshots are warned about; missing cost/value inputs make affected totals unavailable. Known P&L-only accounts are excluded with a warning.
+
+No real data is bundled. `examples/` has a **synthetic compatible store template**, schema and preparation script. You do not need it if your existing Market store has holdings captures. To populate a new store, follow [examples/README.md](examples/README.md). This frontend has no writer: placing/updating real files in Drive is a separate user/writer action.
+
+The requested scope is `https://www.googleapis.com/auth/drive.readonly`: read access to all Drive files accessible to the signed-in user, **not folder-scoped permission**. `drive.file` does not provide read access to an arbitrary pre-existing store created by another app. Requests are limited by this app to the selected root and the supported store files. Viewer access is sufficient. Each active user token is used only for that user's Drive requests. Users with access to the same shared folder intentionally see the same data; account dropdowns are not security boundaries.
+
+Tokens, loaded data and folder selection stay in memory. Disconnect, reconnect/account selection, reload, expiry, and page restoration clear displayed/private state; pending requests are aborted and stale responses ignored. No local/session storage, IndexedDB, portfolio cache, analytics, refresh token, credential file, or service worker is used. Disconnect does not revoke Google's consent or sign out of Google globally. The static build is an allowlist: only `index.html`, `SETUP.html`, `.nojekyll`, and `src/` are deployed.
+
+## Calculations and limits
+
+- Value: source `current_value`, otherwise `qty × ltp`; cost: `invested`, otherwise `qty × avg_price`. Zero is a real number; null/absent is missing.
+- Unrealised P&L: value minus cost. Return: P&L / cost. Group positions by exact Groww slug, never fuzzy names.
+- Allocation and top-five concentration use captured market value. Combined capture dates can differ and are shown per account.
+- Dividend credits are deduplicated by `(account, isin, ex_date, shares, amount)` across all report dates; shown separately and with partial-coverage warnings.
+- Captured prices are **not live**. Refresh rereads Drive. No daily price change, balance history, XIRR, realised-return reconstruction, tax estimates, cash, or total net worth is fabricated.
+- Confirmation logs identify rechecks of the same content hash; capture/as-of timestamps remain distinct. Data freshness reflects snapshots and logs, not quote freshness.
+
+## GitHub Pages
+
+The repository should remain private if the account plan supports Pages from private repositories. Otherwise a public **frontend-only** repository can host the same code. A private source repository usually does **not** make the Pages site private. This repository contains no private investment data either way.
+
+1. In repository Settings → Pages, choose **GitHub Actions** as the source. Private-repository Pages generally requires GitHub Pro/Team or Enterprise; verify the actual account entitlement.
+2. Run **Validate static dashboard** or let it run on push.
+3. When ready to publish, run **Deploy Pages (explicit manual approval)** and set `publish_site` to true. The workflow is intentionally manual; pushes do not publish a site. The `github-pages` environment can require a reviewer.
+4. For the resulting `https://OWNER.github.io/REPOSITORY/` URL, register `https://OWNER.github.io` as the Google OAuth JavaScript origin. Relative paths support a repository subpath. No OAuth secret or token is needed in GitHub Actions or repository settings.
+
+The app asks for the public client ID at runtime, so the hosted source contains no user-specific OAuth configuration. The client ID is not a secret. Never upload portfolio files or OAuth desktop JSON into this repository. Production changes require a new manual deployment.
+
+## Validation
+
+`npm test` covers aggregation, partial inputs, empty accounts, dividend overlap/account separation, snapshot validation/fallback, confirmation hash matching, Drive pagination, and read-only authenticated requests. CI runs tests and the allowlisted static build. Browser validation can cover the disconnected and synthetic mocked-data interface; real Google authorization requires the user's web OAuth client and consent. Synthetic fixtures are never shown in the production app automatically.
+
+For an explicit local synthetic UI check, run `npm run test:preview` and open `http://127.0.0.1:5174/`. This separate test server mocks Google and Drive using invented data; use `synthetic.apps.googleusercontent.com` as the client ID and `synthetic-root` as the folder ID. It is never copied into `dist/`. Disconnect should remove all portfolio values and account options. The production preview remains `http://127.0.0.1:5173/` and always uses real Google authorization.
+
+## Primary references
+
+- [Google Identity Services token model](https://developers.google.com/identity/oauth2/web/guides/use-token-model)
+- [Drive API scopes](https://developers.google.com/workspace/drive/api/guides/api-specific-auth)
+- [Drive files.list](https://developers.google.com/workspace/drive/api/reference/rest/v3/files/list)
+- [GitHub Pages availability](https://docs.github.com/en/pages/getting-started-with-github-pages/about-github-pages)
+- [Pages site visibility](https://docs.github.com/en/pages/getting-started-with-github-pages/changing-the-visibility-of-your-github-pages-site)

@@ -1,0 +1,7 @@
+{
+  "store_version": 1,
+  "datasets": {
+    "groww.live_holdings": { "version": 1, "semantics": "latest", "max_age_hours": 24 },
+    "groww.dividend_report": { "version": 1, "semantics": "cumulative", "max_age_hours": 744 }
+  }
+}
