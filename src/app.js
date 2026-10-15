@@ -1,6 +1,7 @@
 import {buildPortfolio,numeric} from './model.js';
 import {DriveReader,folderId} from './drive.js';
 import {restoreClientId,saveClientId} from './preferences.js';
+import {restoreSession,saveSession,clearSession} from './session.js';
 const $=id=>document.getElementById(id);
 $('client-id').value=restoreClientId();
 $('client-id').addEventListener('input',()=>saveClientId($('client-id').value.trim()));
@@ -10,7 +11,7 @@ const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:
 const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Unknown';
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
-let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[];
+let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false;
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
   generation++;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
@@ -24,7 +25,7 @@ function clearData() {
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;
 }
 function disconnect(message='Disconnected. Portfolio data has been cleared.') {
-  clearTimeout(expireTimer);clearData();token=null;expiry=0;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
+  clearTimeout(expireTimer);clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
 }
 $('disconnect').addEventListener('click',()=>disconnect());
 $('connect').addEventListener('click',()=>{
@@ -40,10 +41,7 @@ $('connect').addEventListener('click',()=>{
       $('connect').disabled=false;
       if(response.error||!response.access_token)return status('Google authorization was not completed. Try connecting again.',true);
       if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.readonly'))return status('Drive read-only permission is required to read the existing store.',true);
-      token=response.access_token;expiry=Date.now()+Number(response.expires_in||3600)*1000;
-      controller=new AbortController();reader=new DriveReader(token,{signal:controller.signal});
-      expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to choose your account.'),Math.max(0,expiry-Date.now()-10000));
-      $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
+      activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:''});
       status('Connected. Choose the Market folder accessible to this Google account.');
     },error_callback:()=>{if(attempt===generation){$('connect').disabled=false;status('The Google popup was closed or blocked. Allow popups and try again.',true);}}
   });
@@ -67,9 +65,9 @@ async function openFolder(id) {
     status('Opening the Drive store…');
     const result=await reader.load(id,message=>{if(attempt===generation)status(message);});
     if(attempt!==generation)return;
-    store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
+    store=result;selectedRoot=id;rememberSession();sourcePage=warningPage=allocationPage=0;
     for(const s of [...store.snapshots].sort((a,b)=>a.partition.localeCompare(b.partition)))$('account').add(new Option(s.partition,s.partition));
-    $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();status('Loaded from Google Drive. Values reflect saved capture prices; no live quotes.');
+    $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();status('Loaded from Google Drive. Values reflect saved capture prices; no live quotes.'+(sessionRemembered?'':' This browser blocked session storage; refresh will require reconnecting.'));
   });
 }
 $('find-folders').addEventListener('click',()=>action(async attempt=>{
@@ -84,8 +82,7 @@ $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;
 $('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
 $('account').addEventListener('change',render);$('search').addEventListener('input',renderPositions);
 document.addEventListener('visibilitychange',()=>{if(token&&Date.now()>=expiry)disconnect('Google access expired. Connect again.');});
-window.addEventListener('pagehide',()=>disconnect());
-window.addEventListener('pageshow',event=>{if(event.persisted)disconnect('Connect again after restoring this page.');});
+window.addEventListener('pageshow',event=>{if(event.persisted&&token&&Date.now()>=expiry-10000)disconnect('Google access expired. Connect again to continue.');});
 function bar(container,name,value,share,colour='') {
   const row=text('div','','bar-row');const label=text('div','','bar-label');label.append(text('span',name),text('span',`${money(value)} · ${numeric(share)?share.toFixed(1)+'%':'—'}`));
   const track=text('div','','bar-track'),fill=text('div','',`bar-fill ${colour}`);fill.style.width=`${Math.max(0,Math.min(100,share||0))}%`;track.append(fill);row.append(label,track);container.append(row);
@@ -160,3 +157,19 @@ window.addEventListener('resize',()=>{if(store){sourcePage=warningPage=allocatio
 for(const [button,card]of [['show-accounts','account-chart'],['show-largest','largest-chart']])$(button).addEventListener('click',()=>{
  for(const [b,c]of [['show-accounts','account-chart'],['show-largest','largest-chart']]){$(b).setAttribute('aria-pressed',String(b===button));$(c).classList.toggle('chart-current',c===card);}
 });
+
+function rememberSession(){
+ sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||''});
+}
+function activateSession(session){
+ token=session.accessToken;expiry=session.expiresAt;selectedRoot=session.rootId||null;
+ controller=new AbortController();reader=new DriveReader(token,{signal:controller.signal});rememberSession();
+ clearTimeout(expireTimer);expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to continue.'),Math.max(0,expiry-Date.now()-10000));
+ $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
+}
+const previousSession=restoreSession($('client-id').value.trim());
+if(previousSession){
+ activateSession(previousSession);
+ if(previousSession.rootId){$('folder-panel').hidden=true;status('Restoring your dashboard from Google Drive…');openFolder(previousSession.rootId);}
+ else status('Google session restored. Choose your Market folder.');
+}
