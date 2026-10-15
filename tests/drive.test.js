@@ -48,3 +48,13 @@ test('default browser fetch keeps its global receiver during Drive folder search
   assert.equal(requests[0].options.headers.Authorization,'Bearer synthetic-default-token');
  } finally {globalThis.fetch=originalFetch;}
 });
+
+test('transient browser network failures retry the same read-only request',async()=>{
+ let calls=0;
+ const d=new DriveReader('synthetic',{fetcher:async()=>{if(++calls===1)throw new TypeError('Failed to fetch');return Response.json({files:[]});}});
+ assert.deepEqual(await d.findStores(),[]);assert.equal(calls,2);
+});
+test('persistent browser failure identifies operation without leaking request URL or credentials',async()=>{
+ const d=new DriveReader('synthetic-secret-not-a-real-token',{fetcher:async()=>{throw new TypeError('Failed to fetch');}});
+ await assert.rejects(d.get('/files/synthetic-private-id',{alt:'media'}),e=>e.fatal&&e.message.includes('file download')&&!e.message.includes('synthetic-private-id')&&!e.message.includes('synthetic-secret'));
+});

@@ -16,7 +16,17 @@ export class DriveReader {
     const url=new URL(API+path);for(const [k,v] of Object.entries(params)) url.searchParams.set(k,v);
     let response;
     for(let attempt=0;attempt<3;attempt++) {
-      response=await this.fetcher(url,{method:'GET',headers:{Authorization:`Bearer ${this.token}`},cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',signal:this.signal});
+      try {
+        response=await this.fetcher(url,{method:'GET',headers:{Authorization:`Bearer ${this.token}`},cache:'no-store',credentials:'omit',referrerPolicy:'no-referrer',signal:this.signal});
+      } catch(error) {
+        if(error.name==='AbortError'||this.signal?.aborted)throw error;
+        if(attempt===2) {
+          const operation=path==='/files'?'folder listing':params.alt==='media'?'file download':'folder/file metadata';
+          throw Object.assign(new Error(`The browser could not fetch Drive ${operation} after 3 attempts. Check the connection or browser network restrictions, then retry.`),{fatal:true});
+        }
+        await new Promise(resolve=>setTimeout(resolve,400*2**attempt));
+        continue;
+      }
       if(![429,500,502,503,504].includes(response.status)||attempt===2)break;
       await new Promise(resolve=>setTimeout(resolve,400*2**attempt));
     }
@@ -42,8 +52,10 @@ export class DriveReader {
   async readJSON(file) {const text=await this.get('/files/'+encodeURIComponent(file.id),{alt:'media',supportsAllDrives:'true'});return JSON.parse(text);}
   async load(rootId,onProgress=()=>{}) {
     const warnings=[];
+    onProgress('Reading Drive folder metadata…');
     const root=await this.get('/files/'+encodeURIComponent(rootId),{fields:'id,name,mimeType,trashed',supportsAllDrives:'true'});
     if(root.mimeType!==FOLDER||root.trashed)throw new Error('Choose a Drive folder, not a file.');
+    onProgress('Listing store folders…');
     const rootChildren=await this.children([rootId]);
     const datasets=new Map();
     for(const f of rootChildren.filter(f=>f.mimeType===FOLDER)) {const ids=datasets.get(f.name)||[];ids.push(f.id);datasets.set(f.name,ids);}
@@ -52,6 +64,7 @@ export class DriveReader {
     const schemaFiles=await this.children(datasets.get('_schema'));
     const catalogs=schemaFiles.filter(f=>f.name==='catalog.json').sort((a,b)=>a.id.localeCompare(b.id));
     if(!catalogs.length)throw new Error('The store catalog is missing.');
+    onProgress('Reading store catalog…');
     const catalog=await this.readJSON(catalogs[0]);
     if(catalog.store_version!==1||catalog.datasets?.['groww.live_holdings']?.version!==1||catalog.datasets['groww.live_holdings'].semantics!=='latest')throw new Error('This store version is not supported. Expected Market v1 holdings snapshots.');
     const snapshots=[],dividends=[],logs=[];let reportAccounts=[];
