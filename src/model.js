@@ -56,6 +56,10 @@ export function buildPortfolio(snapshots, dividendSnapshots = [], account = '') 
     const value=total(g.rows.map(r=>r.value)),cost=total(g.rows.map(r=>r.cost));
     return {key:g.key,name:g.name,quantity:total(g.rows.map(r=>r.quantity)),value,cost,pnl:numeric(value)&&numeric(cost)?value-cost:null,accounts:[...new Set(g.rows.map(r=>r.account))]};
   }).sort((a,b)=>(b.value??-Infinity)-(a.value??-Infinity));
+  // User treats this specific ETF as their cash reserve; do not classify other liquid funds by fuzzy names.
+  const isCash=p=>p.key==='zerodha-nifty-d-rate-liquid-etf'||p.key.trim().toUpperCase()==='LIQUIDCASE'||p.name.trim().toUpperCase()==='LIQUIDCASE';
+  const cashEquivalent=total(positions.filter(isCash).map(p=>p.value));
+  const otherHoldingsValue=total(positions.filter(p=>!isCash(p)).map(p=>p.value));
   const value=total(positions.map(p=>p.value)),cost=total(positions.map(p=>p.cost));
   const pnl=numeric(value)&&numeric(cost)?value-cost:null;
   const credits=new Map();
@@ -66,7 +70,7 @@ export function buildPortfolio(snapshots, dividendSnapshots = [], account = '') 
     credits.set(key,r);
   }
   const weights=positions.map(p=>percentage(p.value,value));
-  return {accounts,positions:positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
+  return {cashEquivalent,otherHoldingsValue,cashWeight:percentage(cashEquivalent,value),accounts,positions:positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
 }
 
 export function confirmationAt(snapshot, logs) {

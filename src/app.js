@@ -1,3 +1,4 @@
+import {PortfolioCache,samePortfolio} from './cache.js';
 import {buildPortfolio,numeric} from './model.js';
 import {DriveReader,folderId} from './drive.js';
 import {restoreClientId,saveClientId} from './preferences.js';
@@ -11,7 +12,7 @@ const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:
 const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Unknown';
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
-let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false;
+let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null;
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
   generation++;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
@@ -25,7 +26,7 @@ function clearData() {
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;
 }
 function disconnect(message='Disconnected. Portfolio data has been cleared.') {
-  clearTimeout(expireTimer);clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
+  clearTimeout(expireTimer);portfolioCache?.clear();portfolioCache=null;clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
 }
 $('disconnect').addEventListener('click',()=>disconnect());
 $('connect').addEventListener('click',()=>{
@@ -55,20 +56,42 @@ async function action(work) {
   try {await work(attempt);}catch(e){if(attempt!==generation||e.name==='AbortError')return;if(e.authExpired)disconnect(e.message);else {if(!store)$('folder-panel').hidden=false;status(e.message||'Could not load Drive data.',true);}}
   finally{if(attempt===generation){busy=false;for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;}}
 }
+function displayStore(result,id){
+ store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
+ $('account').replaceChildren(new Option('Combined accounts',''));
+ for(const snapshot of [...store.snapshots].sort((a,b)=>a.partition.localeCompare(b.partition)))$('account').add(new Option(snapshot.partition,snapshot.partition));
+ $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();
+}
 async function openFolder(id) {
-  if(busy)return;
-  // Drop the previous folder's data before requesting another one.
-  store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
+ if(busy)return;
+ if(selectedRoot!==id){store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
   for(const key of ['positions','stats','allocation','largest','provenance','warnings'])$(key).replaceChildren();
   $('account').replaceChildren(new Option('Combined accounts',''));$('search').value='';
-  await action(async attempt=>{
-    status('Opening the Drive store…');
-    const result=await reader.load(id,message=>{if(attempt===generation)status(message);});
-    if(attempt!==generation)return;
-    store=result;selectedRoot=id;rememberSession();sourcePage=warningPage=allocationPage=0;
-    for(const s of [...store.snapshots].sort((a,b)=>a.partition.localeCompare(b.partition)))$('account').add(new Option(s.partition,s.partition));
-    $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();status('Loaded from Google Drive. Values reflect saved capture prices; no live quotes.'+(sessionRemembered?'':' This browser blocked session storage; refresh will require reconnecting.'));
-  });
+ }
+ await action(async attempt=>{
+  const cache=portfolioCache;
+  const cached=await cache?.get('portfolio:'+id);
+  if(attempt!==generation)return;
+  if(cached){displayStore(cached,id);status('Showing cached portfolio. Checking Google Drive for changes…');}
+  else status('Opening the Drive store…');
+  try{
+   const result=await reader.load(id,message=>{if(attempt===generation&&!cached)status(message);});
+   if(attempt!==generation)return;
+   await cache?.set('portfolio:'+id,result);
+   if(attempt!==generation)return;
+   if(!cached||!samePortfolio(cached,result))displayStore(result,id);
+   else {store.loadedAt=result.loadedAt;$('freshness').textContent=$('freshness').textContent.replace(/ · Read .*/,` · Read ${stamp(result.loadedAt)}`);}
+   rememberSession();
+   status('Checked Google Drive. Saved capture prices; no live quotes.'+(cache?.disabled?' Browser cache unavailable.':'')+(sessionRemembered?'':' Refresh will require reconnecting.'));
+  }catch(error){
+   if(attempt!==generation)throw error;
+   if(error.authExpired)throw error;
+   // A denied or deleted root must never leave cached private values on screen.
+   if(error.accessDenied){store=null;$('dashboard').hidden=true;document.documentElement.classList.remove('app-loaded');await cache?.clear();portfolioCache=null;}
+   else if(cached){status('Showing cached data from '+stamp(cached.loadedAt)+'. Drive check failed; this data may be out of date.',true);return;}
+   throw error;
+  }
+ });
 }
 $('find-folders').addEventListener('click',()=>action(async attempt=>{
   status('Finding folders named market-data…');const folders=await reader.findStores();if(attempt!==generation)return;
@@ -87,7 +110,8 @@ function bar(container,name,value,share,colour='') {
   const row=text('div','','bar-row');const label=text('div','','bar-label');label.append(text('span',name),text('span',`${money(value)} · ${numeric(share)?share.toFixed(1)+'%':'—'}`));
   const track=text('div','','bar-track'),fill=text('div','',`bar-fill ${colour}`);fill.style.width=`${Math.max(0,Math.min(100,share||0))}%`;track.append(fill);row.append(label,track);container.append(row);
 }
-function current(){return buildPortfolio(store.snapshots,store.dividends,$('account').value);}
+const calculations=new WeakMap();
+function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const account=$('account').value;if(!accounts.has(account))accounts.set(account,buildPortfolio(store.snapshots,store.dividends,account));return accounts.get(account);}
 function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
   const selected=store.snapshots.filter(s=>!$('account').value||s.partition===$('account').value);
@@ -99,9 +123,9 @@ function render() {
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
-  $('overview-detail').textContent=`${p.positions.length} holdings across ${p.accounts.length} account${p.accounts.length===1?'':'s'}. Prices and quantities are saved as of ${dates.join(' · ')}.`;
+  $('overview-detail').textContent=`${money(p.otherHoldingsValue)} in other holdings; LIQUIDCASE is shown separately as your cash equivalent and remains included in total value. ${p.positions.length} holdings across ${p.accounts.length} account${p.accounts.length===1?'':'s'}. Saved as of ${dates.join(' · ')}.`;
   $('stats').replaceChildren();
-  const stats=[['CAPTURED MARKET VALUE',money(p.value),`${p.positions.length} holdings · ${p.accounts.length} accounts`],['INVESTED',money(p.cost),'Cost of the captured holdings'],['UNREALISED P&L',money(p.pnl),pct(p.returnPct)],['TOP 5 WEIGHT',numeric(p.top5)?p.top5.toFixed(1)+'%':'—','Share of captured market value'],['SAVED DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'All available report dates · separate from P&L':'No saved reports for these accounts']];
+  const stats=[['CAPTURED MARKET VALUE',money(p.value),`${p.positions.length} holdings · ${p.accounts.length} accounts`],['INVESTED',money(p.cost),'Cost of the captured holdings'],['UNREALISED P&L',money(p.pnl),pct(p.returnPct)],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['SAVED DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'All available report dates · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){const c=text('section','','stat');c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):''),text('p',note,'fine'));$('stats').append(c);}
   renderDetails();
   renderPositions();
@@ -159,11 +183,12 @@ for(const [button,card]of [['show-accounts','account-chart'],['show-largest','la
 });
 
 function rememberSession(){
- sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||''});
+ sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope});
 }
 function activateSession(session){
  token=session.accessToken;expiry=session.expiresAt;selectedRoot=session.rootId||null;
- controller=new AbortController();reader=new DriveReader(token,{signal:controller.signal});rememberSession();
+ portfolioCache=new PortfolioCache(session.cacheScope||crypto.randomUUID(),expiry);
+ controller=new AbortController();reader=new DriveReader(token,{signal:controller.signal,cache:portfolioCache});rememberSession();
  clearTimeout(expireTimer);expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to continue.'),Math.max(0,expiry-Date.now()-10000));
  $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
 }

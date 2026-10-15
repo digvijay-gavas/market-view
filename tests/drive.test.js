@@ -58,3 +58,26 @@ test('persistent browser failure identifies operation without leaking request UR
  const d=new DriveReader('synthetic-secret-not-a-real-token',{fetcher:async()=>{throw new TypeError('Failed to fetch');}});
  await assert.rejects(d.get('/files/synthetic-private-id',{alt:'media'}),e=>e.fatal&&e.message.includes('file download')&&!e.message.includes('synthetic-private-id')&&!e.message.includes('synthetic-secret'));
 });
+
+function memoryCache(){const map=new Map();return {get:async key=>map.get(key),set:async(key,value)=>{map.set(key,structuredClone(value));}};}
+test('unchanged Drive revisions reuse cached content while changed files download again',async()=>{
+ const cache=memoryCache();let downloads=0;
+ const reader=new DriveReader('synthetic',{cache,fetcher:async()=>{downloads++;return Response.json({value:downloads});}});
+ assert.deepEqual(await reader.readJSON({id:'one',version:'1'}),{value:1});
+ assert.deepEqual(await reader.readJSON({id:'one',version:'1'}),{value:1});assert.equal(downloads,1);
+ assert.deepEqual(await reader.readJSON({id:'one',version:'2'}),{value:2});assert.equal(downloads,2);
+ await reader.readJSON({id:'two',version:'1'});assert.equal(downloads,3);
+});
+test('files without revision metadata always download; another session never reuses the cache',async()=>{
+ let downloads=0;const fetcher=async()=>{downloads++;return Response.json({ok:true});};
+ const reader=new DriveReader('synthetic',{cache:memoryCache(),fetcher});
+ await reader.readJSON({id:'one'});await reader.readJSON({id:'one'});assert.equal(downloads,2);
+ await reader.readJSON({id:'one',version:'1'});
+ await new DriveReader('other',{cache:memoryCache(),fetcher}).readJSON({id:'one',version:'1'});assert.equal(downloads,4);
+});
+test('download failures never replace cached file content',async()=>{
+ const cache=memoryCache();await cache.set('file:one',{revision:'version:1',text:'{"old":true}'});
+ const reader=new DriveReader('synthetic',{cache,fetcher:async()=>new Response('',{status:403})});
+ await assert.rejects(reader.readJSON({id:'one',version:'2'}),error=>error.accessDenied);
+ assert.deepEqual(await reader.readJSON({id:'one',version:'1'}),{old:true});
+});

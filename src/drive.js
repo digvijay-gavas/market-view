@@ -1,3 +1,4 @@
+import {fileRevision} from './cache.js';
 import {SNAPSHOT, newestValid, validateSnapshot, confirmationAt} from './model.js';
 const API='https://www.googleapis.com/drive/v3';
 const FOLDER='application/vnd.google-apps.folder';
@@ -11,7 +12,7 @@ export function folderId(input) {
 }
 export class DriveReader {
   // Native browser fetch requires the Window receiver when stored as a method.
-  constructor(token,{fetcher=globalThis.fetch.bind(globalThis),signal}={}) { this.token=token;this.fetcher=fetcher;this.signal=signal; }
+  constructor(token,{fetcher=globalThis.fetch.bind(globalThis),signal,cache}={}) { this.token=token;this.fetcher=fetcher;this.signal=signal;this.cache=cache; }
   async get(path,params={}) {
     const url=new URL(API+path);for(const [k,v] of Object.entries(params)) url.searchParams.set(k,v);
     let response;
@@ -34,14 +35,14 @@ export class DriveReader {
     if(!response.ok) {
       // Do not reflect Drive error bodies or request URLs (which can contain private IDs).
       const message=response.status===403?'Drive denied access. Check the account, read-only consent, and that Drive API is enabled.':response.status===404?'Folder or file unavailable to this Google account.':`Drive request failed (HTTP ${response.status}). Try refreshing.`;
-      throw Object.assign(new Error(message),{fatal:true});
+      throw Object.assign(new Error(message),{fatal:true,accessDenied:[403,404].includes(response.status)});
     }
     return params.alt==='media'?response.text():response.json();
   }
   async list(q) {
     const files=[];let pageToken;
     do {
-      const data=await this.get('/files',{q:`trashed = false and (${q})`,fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,parents)',pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(pageToken?{pageToken}:{})});
+      const data=await this.get('/files',{q:`trashed = false and (${q})`,fields:'nextPageToken,incompleteSearch,files(id,name,mimeType,parents,version,modifiedTime,md5Checksum,size)',pageSize:'1000',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(pageToken?{pageToken}:{})});
       if(data.incompleteSearch)throw new Error('Drive returned an incomplete folder search. Paste the folder ID instead.');
       files.push(...data.files);pageToken=data.nextPageToken;
     }while(pageToken);
@@ -49,7 +50,15 @@ export class DriveReader {
   }
   children(ids) {return this.list(ids.map(id=>`'${escapeQuery(id)}' in parents`).join(' or '));}
   async findStores() {return this.list(`name = 'market-data' and mimeType = '${FOLDER}'`);}
-  async readJSON(file) {const text=await this.get('/files/'+encodeURIComponent(file.id),{alt:'media',supportsAllDrives:'true'});return JSON.parse(text);}
+  async readText(file) {
+    const revision=fileRevision(file),key='file:'+file.id;
+    if(revision&&this.cache){const cached=await this.cache.get(key);if(cached?.revision===revision)return cached.text;}
+    const text=await this.get('/files/'+encodeURIComponent(file.id),{alt:'media',supportsAllDrives:'true'});
+    this.signal?.throwIfAborted();
+    if(revision&&this.cache)await this.cache.set(key,{revision,text});
+    return text;
+  }
+  async readJSON(file) {return JSON.parse(await this.readText(file));}
   async load(rootId,onProgress=()=>{}) {
     const warnings=[];
     onProgress('Reading Drive folder metadata…');
@@ -93,7 +102,7 @@ export class DriveReader {
     }
     if(datasets.has('_log')) {
       for(const f of (await this.children(datasets.get('_log'))).filter(f=>f.name.endsWith('.jsonl'))) {
-        const text=await this.get('/files/'+encodeURIComponent(f.id),{alt:'media',supportsAllDrives:'true'});
+        const text=await this.readText(f);
         for(const line of text.split('\n')) if(line.trim())try{logs.push(JSON.parse(line));}catch{warnings.push('An incomplete confirmation log entry was ignored.');}
       }
     }

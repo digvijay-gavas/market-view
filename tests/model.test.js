@@ -48,3 +48,13 @@ test('only confirmations of the same account/dataset/hash count',()=>{
  const s=snapshot('one',[]);
  assert.equal(confirmationAt(s,[{dataset:s.dataset,partition:'two',hash,action:'unchanged',at:'2027-01-01T00:00:00Z'},{dataset:s.dataset,partition:'one',hash:'wrong',action:'unchanged',at:'2027-01-01T00:00:00Z'},{dataset:s.dataset,partition:'one',hash,action:'unchanged',at:'2026-01-02T00:00:00Z'}]),'2026-01-02T00:00:00.000Z');
 });
+
+test('LIQUIDCASE is a cash equivalent across accounts without changing total holdings or returns',()=>{
+ const captures=[snapshot('one',[holding('zerodha-nifty-d-rate-liquid-etf',10,90,100),holding('stock',2,200,220)]),snapshot('two',[holding('zerodha-nifty-d-rate-liquid-etf',5,45,50)])];
+ const p=buildPortfolio(captures);assert.equal(p.cashEquivalent,150);assert.equal(p.otherHoldingsValue,220);assert.equal(p.value,370);assert.equal(p.cost,335);assert.equal(p.pnl,35);assert.equal(p.positions.length,2);
+ const filtered=buildPortfolio(captures,[],'one');assert.equal(filtered.cashEquivalent,100);assert.equal(filtered.otherHoldingsValue,220);
+});
+test('absent cash is zero, missing cash is unavailable and other liquid names are not guessed',()=>{
+ const p=buildPortfolio([snapshot('one',[holding('liquidbees',1,10,12)])]);assert.equal(p.cashEquivalent,0);assert.equal(p.otherHoldingsValue,12);
+ const missing=buildPortfolio([snapshot('one',[holding('LIQUIDCASE',1,10,null),holding('stock',1,20,30)])]);assert.equal(missing.cashEquivalent,null);assert.equal(missing.otherHoldingsValue,30);assert.equal(missing.value,null);
+});

@@ -9,7 +9,7 @@ export function restoreSession(clientId,{storage,now=Date.now()}={}){
  clearSession(storage);return null;
 }
 export function saveSession(session,{storage,now=Date.now()}={}){
- const record={version:1,clientId:session.clientId,accessToken:session.accessToken,expiresAt:session.expiresAt,rootId:session.rootId||''};
+ const record={version:1,clientId:session.clientId,accessToken:session.accessToken,expiresAt:session.expiresAt,rootId:session.rootId||'',...(typeof session.cacheScope==='string'&&/^[a-zA-Z0-9-]{1,80}$/.test(session.cacheScope)?{cacheScope:session.cacheScope}:{})};
  if(!valid(record,session.clientId,now)){clearSession(storage);return false;}
  try{(storage??globalThis.sessionStorage).setItem(key,JSON.stringify(record));return true;}catch{return false;}
 }

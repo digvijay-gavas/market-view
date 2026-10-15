@@ -17,3 +17,16 @@ test('production build allowlist excludes synthetic browser fixture and all exam
  assert.match(build,/\['index.html','SETUP.html','\.nojekyll'\]/);
  assert.doesNotMatch(build,/cp\(root\+'(?:tests|examples)'/);
 });
+
+test('repeat store checks reuse unchanged bodies and reflect modified and deleted captures',async()=>{
+ const context={window:{},URL,Response};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ const records=new Map();const cache={get:async k=>records.get(k),set:async(k,v)=>records.set(k,structuredClone(v))};let downloads=0;
+ const fetcher=(url,options)=>{if(url.searchParams.get('alt')==='media')downloads++;return context.window.fetch(url,options);};
+ const reader=new DriveReader('synthetic-ui-token',{fetcher,cache});
+ assert.equal(buildPortfolio((await reader.load('synthetic-root')).snapshots,[]).value,2600);assert.equal(downloads,3);
+ await reader.load('synthetic-root');assert.equal(downloads,3,'unchanged metadata must produce zero body downloads');
+ vm.runInNewContext("children['account-one'][0].version='2';docs['snapshot-one'].tables.holdings[0].current_value=1400",context);
+ assert.equal(buildPortfolio((await reader.load('synthetic-root')).snapshots,[]).value,2800);assert.equal(downloads,4,'only changed capture downloads');
+ vm.runInNewContext("children.holdings=children.holdings.filter(row=>row.id!=='account-two')",context);
+ const after=await reader.load('synthetic-root');assert.equal(buildPortfolio(after.snapshots,[]).value,2200);assert.equal(after.snapshots.length,1);assert.equal(downloads,4);
+});

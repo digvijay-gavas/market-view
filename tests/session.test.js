@@ -29,3 +29,8 @@ test('blocked tab storage preserves the current-page fallback without throwing',
  const storage={getItem(){throw new Error('blocked');},setItem(){throw new Error('blocked');},removeItem(){throw new Error('blocked');}};
  assert.equal(saveSession(record,{storage,now}),false);assert.equal(restoreSession(client,{storage,now}),null);assert.doesNotThrow(()=>clearSession(storage));
 });
+
+test('cache scope survives refresh without persisting credentials in the database key',()=>{
+ const storage=memory();saveSession({...record,cacheScope:'synthetic-random-scope'},{storage,now});
+ assert.equal(restoreSession(client,{storage,now}).cacheScope,'synthetic-random-scope');
+});

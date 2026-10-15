@@ -2,7 +2,7 @@
 // No production data or Google requests. Deliberately not a node test file.
 window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken:()=>options.callback({access_token:'synthetic-ui-token',expires_in:3600})}),hasGrantedAllScopes:()=>true}}};
 const folder=(id,name)=>({id,name,mimeType:'application/vnd.google-apps.folder'});
-const file=(id,name)=>({id,name,mimeType:'application/json'});
+const file=(id,name)=>({id,name,mimeType:'application/json',version:'1'});
 const hash='sha256:'+'a'.repeat(64);
 const snap=(partition,holdings)=>({store_version:1,schema_version:1,dataset:'groww.live_holdings',partition,source:'groww',method:'manual',captured_at:'2026-01-01T10:00:00Z',as_of:'2026-01-01',content_hash:hash,meta:{synthetic:true},tables:{holdings}});
 const holding=(slug,name,qty,invested,current_value)=>({groww_slug:slug,name,qty,invested,current_value});
@@ -25,9 +25,14 @@ if(window.location?.search?.includes('dense=1')){
   children.holdings.push(folder(id,name));children[id]=[file(fileId,'20260101T100000Z__aaaaaaaaaaaa.json')];docs[fileId]=snap(name,[]);
  }
 }
+if(window.location?.search?.includes('revision=2')){children['account-one'][0].version='2';docs['snapshot-one'].tables.holdings[0].current_value=1400;}
+if(window.location?.search?.includes('cash=1'))docs['snapshot-one'].tables.holdings.push(holding('zerodha-nifty-d-rate-liquid-etf','LIQUIDCASE',10,990,1000));
+let mediaDownloads=0;
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
  const url=new URL(input);
+ if(window.location?.search?.includes('offline=1'))throw new TypeError('Synthetic offline');
+ if(window.location?.search?.includes('denied=1'))return new Response('',{status:403});
  if(url.origin!=='https://www.googleapis.com'||options.headers.Authorization!=='Bearer synthetic-ui-token')throw new Error('Unexpected test request');
  if(url.pathname==='/drive/v3/files') {
   if(url.searchParams.get('q').includes("name = 'market-data'"))return Response.json({files:[folder('synthetic-root','market-data')]});
@@ -36,6 +41,6 @@ window.fetch=async function(input,options){
  }
  const id=decodeURIComponent(url.pathname.split('/').at(-1));
  if(id==='synthetic-root')return Response.json(folder(id,'SYNTHETIC portfolio'));
- if(docs[id])return Response.json(docs[id]);
+ if(docs[id]){mediaDownloads++;if(typeof document!=='undefined')document.querySelector('[role=note]').textContent='SYNTHETIC TEST FIXTURE — invented data, fake authorization, no Google requests. File downloads: '+mediaDownloads;return Response.json(docs[id]);}
  return new Response('',{status:404});
 };
