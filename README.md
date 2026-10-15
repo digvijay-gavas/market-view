@@ -101,4 +101,4 @@ Calculation convention: [Microsoft XIRR reference](https://learn.microsoft.com/e
 
 ## Gold on Overview
 
-GOLDCASE (`zerodha-gold-etf`, or an exact GOLDCASE symbol/name) is shown as Gold with a portfolio percentage and a gold highlight. Other holdings excludes both GOLDCASE and LIQUIDCASE. Both remain included once in portfolio totals and XIRR. The account filter applies. Saved dividend credits remain in the Overview detail to keep six summary cards and avoid page scrolling.
+GOLDCASE (`zerodha-gold-etf`, or an exact GOLDCASE symbol/name) is shown as Gold with a portfolio percentage and a gold highlight. Other holdings excludes both GOLDCASE and LIQUIDCASE. Both remain included once in portfolio totals and XIRR. The account filter applies. Saved dividend credits have a dedicated Overview card. Current value and unrealised P&L share one card, keeping six summary cards and avoiding page scrolling.

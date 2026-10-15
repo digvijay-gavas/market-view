@@ -89,3 +89,10 @@
 #view-overview .gold-stat>strong{color:#ffe8b0;font-weight:650}
 #view-overview .gold-stat .cash-detail{color:#e6d5af}
 #view-overview .gold-stat .cash-share{background:#f1d18a;color:#382708}
+
+#view-overview .value-stat{background:linear-gradient(145deg,#232d34,#1b2125)}
+#view-overview .value-return{margin-top:8px;display:flex;flex-direction:column;gap:2px}
+#view-overview .return-label{font-size:10px;color:var(--muted)}
+#view-overview .return-amount{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;font-size:14px;font-weight:650;line-height:1.35;font-variant-numeric:tabular-nums}
+#view-overview .return-percent{font-size:12px;font-weight:550}
+@media(max-width:700px),(max-height:650px){#view-overview .value-return{margin-top:5px;gap:1px}#view-overview .return-label{font-size:9px}#view-overview .return-amount{font-size:12px;gap:4px}#view-overview .return-percent{font-size:10px}}

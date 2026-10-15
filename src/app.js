@@ -123,13 +123,19 @@ function render() {
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
-  $('overview-detail').textContent=`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. Saved dividend credits: ${money(p.dividends)}. Prices saved as of ${dates.join(' · ')}.`;
+  $('overview-detail').textContent=`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts. Prices saved as of ${dates.join(' · ')}.`;
   $('stats').replaceChildren();
-  const stats=[['CAPTURED MARKET VALUE',money(p.value),`${p.positions.length} holdings · ${p.accounts.length} accounts`],['INVESTED',money(p.cost),'Cost of the captured holdings'],['UNREALISED P&L',money(p.pnl),pct(p.returnPct)],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?'Annualised · excludes sales/dividends':p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE']];
+  const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?'Annualised · excludes sales/dividends':p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){
-    const cash=label==='CASH EQUIVALENT',gold=label==='GOLD',c=text('section','',cash?'stat cash-stat':gold?'stat gold-stat':'stat');
+    const cash=label==='CASH EQUIVALENT',gold=label==='GOLD',c=text('section','',cash?'stat cash-stat':gold?'stat gold-stat':label==='CURRENT VALUE'?'stat value-stat':'stat');
     c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):label==='OPEN HOLDINGS XIRR'&&numeric(p.xirr)?(p.xirr<0?'loss':'gain'):''));
-    if(cash||gold){
+    if(label==='CURRENT VALUE'){
+      const detail=text('div','','value-return');
+      detail.append(text('span','Unrealised P&L','return-label'));
+      const amounts=text('span','',numeric(p.pnl)?(p.pnl<0?'return-amount loss':'return-amount gain'):'return-amount');
+      amounts.append(text('span',money(p.pnl)),text('span',numeric(p.returnPct)?`(${pct(p.returnPct)})`:'','return-percent'));
+      detail.append(amounts);c.append(detail);
+    }else if(cash||gold){
       const weight=gold?p.goldWeight:p.cashWeight;
       c.setAttribute('aria-label',gold?'GOLDCASE gold':'LIQUIDCASE cash equivalent');
       const detail=text('p','','fine cash-detail');
