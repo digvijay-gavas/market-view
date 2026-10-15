@@ -96,3 +96,10 @@
 #view-overview .return-amount{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;font-size:14px;font-weight:650;line-height:1.35;font-variant-numeric:tabular-nums}
 #view-overview .return-percent{font-size:12px;font-weight:550}
 @media(max-width:700px),(max-height:650px){#view-overview .value-return{margin-top:5px;gap:1px}#view-overview .return-label{font-size:9px}#view-overview .return-amount{font-size:12px;gap:4px}#view-overview .return-percent{font-size:10px}}
+
+.account-picker{position:relative}.account-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:20;min-width:230px;max-width:calc(100vw - 32px);padding:12px;background:#202729;border:1px solid #60706a;border-radius:10px;box-shadow:0 12px 30px #0008}
+.account-actions{display:flex;gap:8px;margin-bottom:8px}#dashboard .account-actions button{flex:1}
+#account-options{max-height:min(320px,50dvh);overflow:auto}.account-choice{display:flex;align-items:center;gap:12px;padding:8px;border-radius:6px;cursor:pointer}.account-choice:hover{background:#2d3b34}
+.account-choice input{width:19px;height:19px;min-height:0;padding:0;accent-color:var(--accent)}#account-save-status{margin:7px 0 0;font-size:10px}
+
+@media(max-width:1050px){.account-panel{left:0;right:auto;width:min(300px,calc(100vw - 48px));min-width:0}}

@@ -42,7 +42,7 @@ export async function newestValid(files, read, dataset, partition, onSkip = () =
 }
 
 export function buildPortfolio(snapshots, dividendSnapshots = [], account = '', reports = []) {
-  const selected = snapshots.filter(s => !account || s.partition === account);
+  const selected = snapshots.filter(s => Array.isArray(account)?account.includes(s.partition):!account||s.partition===account);
   const grouped = new Map();
   const accounts = selected.map(s => {
     const rows = s.tables.holdings.map(r => {

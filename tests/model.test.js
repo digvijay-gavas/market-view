@@ -68,3 +68,11 @@ test('missing gold is unavailable; other gold instruments are not guessed',()=>{
  const p=buildPortfolio([snapshot('one',[holding('goldbees',1,20,30)])]);assert.equal(p.goldValue,0);assert.equal(p.otherHoldingsValue,30);
  const unknown=buildPortfolio([snapshot('one',[holding('zerodha-gold-etf',1,20,null)])]);assert.equal(unknown.goldValue,null);assert.equal(unknown.goldWeight,null);
 });
+
+test('multi-account selection totals exactly the chosen accounts and supports an empty selection',()=>{
+ const captures=[snapshot('one',[holding('x',1,100,120)]),snapshot('two',[holding('LIQUIDCASE',1,50,55)]),snapshot('three',[holding('GOLDCASE',1,20,25)])];
+ const reports=[dividend('one',[credit]),dividend('two',[{...credit,amount:7}]),dividend('three',[{...credit,amount:11}])];
+ const p=buildPortfolio(captures,reports,['one','three']);assert.equal(p.value,145);assert.equal(p.cost,120);assert.equal(p.accounts.length,2);assert.equal(p.dividends,16);assert.equal(p.cashEquivalent,0);assert.equal(p.goldValue,25);
+ const none=buildPortfolio(captures,reports,[]);assert.equal(none.value,0);assert.equal(none.positions.length,0);assert.equal(none.dividends,null);
+ const unknown=buildPortfolio(captures,reports,['missing']);assert.equal(unknown.accounts.length,0);
+});

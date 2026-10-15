@@ -1,7 +1,8 @@
+import {RefreshSchedule} from './refresh.js';
 import {PortfolioCache,samePortfolio} from './cache.js';
 import {buildPortfolio,numeric} from './model.js';
 import {DriveReader,folderId} from './drive.js';
-import {restoreClientId,saveClientId} from './preferences.js';
+import {restoreClientId,saveClientId,restoreSelection,saveSelection} from './preferences.js';
 import {restoreSession,saveSession,clearSession} from './session.js';
 const $=id=>document.getElementById(id);
 $('client-id').value=restoreClientId();
@@ -12,21 +13,21 @@ const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:
 const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Unknown';
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
-let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null;
+let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
-  generation++;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
+  generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
   for(const id of ['source-pages','warning-pages','allocation-pages','data-alert','overview-detail'])$(id).replaceChildren();
   $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
-  $('account').replaceChildren(new Option('Combined accounts',''));$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
+  $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
   $('holdings-title').textContent='Holdings';$('table-note').textContent='';
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;
 }
 function disconnect(message='Disconnected. Portfolio data has been cleared.') {
-  clearTimeout(expireTimer);portfolioCache?.clear();portfolioCache=null;clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
+  refreshSchedule.stop();clearTimeout(expireTimer);portfolioCache?.clear();portfolioCache=null;clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
 }
 $('disconnect').addEventListener('click',()=>disconnect());
 $('connect').addEventListener('click',()=>{
@@ -58,21 +59,22 @@ async function action(work) {
 }
 function displayStore(result,id){
  store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
- $('account').replaceChildren(new Option('Combined accounts',''));
- for(const snapshot of [...store.snapshots].sort((a,b)=>a.partition.localeCompare(b.partition)))$('account').add(new Option(snapshot.partition,snapshot.partition));
+ if(selectionRoot!==id){selectedAccounts=restoreSelection($('client-id').value.trim(),id);selectionRoot=id;}
+ renderAccountPicker();
  $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();
 }
 async function openFolder(id) {
- if(busy)return;
- if(selectedRoot!==id){store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
+ if(busy)return false;
+ let succeeded=false;
+ if(selectedRoot!==id){refreshSchedule.stop();store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
   for(const key of ['positions','stats','allocation','largest','provenance','warnings'])$(key).replaceChildren();
-  $('account').replaceChildren(new Option('Combined accounts',''));$('search').value='';
+  $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('search').value='';
  }
  await action(async attempt=>{
   const cache=portfolioCache;
   const cached=await cache?.get('portfolio:'+id);
   if(attempt!==generation)return;
-  if(cached){displayStore(cached,id);status('Showing cached portfolio. Checking Google Drive for changes…');}
+  if(cached){displayStore(cached,id);refreshSchedule.succeeded(Date.parse(cached.loadedAt));status('Showing cached portfolio. Checking Google Drive for changes…');}
   else status('Opening the Drive store…');
   try{
    const result=await reader.load(id,message=>{if(attempt===generation&&!cached)status(message);});
@@ -81,7 +83,7 @@ async function openFolder(id) {
    if(attempt!==generation)return;
    if(!cached||!samePortfolio(cached,result))displayStore(result,id);
    else {store.loadedAt=result.loadedAt;$('freshness').textContent=$('freshness').textContent.replace(/ · Read .*/,` · Read ${stamp(result.loadedAt)}`);}
-   rememberSession();
+   rememberSession();succeeded=true;refreshSchedule.succeeded(Date.parse(result.loadedAt));
    status('Checked Google Drive. Saved capture prices; no live quotes.'+(cache?.disabled?' Browser cache unavailable.':'')+(sessionRemembered?'':' Refresh will require reconnecting.'));
   }catch(error){
    if(attempt!==generation)throw error;
@@ -92,6 +94,7 @@ async function openFolder(id) {
    throw error;
   }
  });
+ return succeeded;
 }
 $('find-folders').addEventListener('click',()=>action(async attempt=>{
   status('Finding folders named market-data…');const folders=await reader.findStores();if(attempt!==generation)return;
@@ -103,7 +106,7 @@ $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder
 $('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot);});
 $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
 $('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
-$('account').addEventListener('change',render);$('search').addEventListener('input',renderPositions);
+$('search').addEventListener('input',renderPositions);
 document.addEventListener('visibilitychange',()=>{if(token&&Date.now()>=expiry)disconnect('Google access expired. Connect again.');});
 window.addEventListener('pageshow',event=>{if(event.persisted&&token&&Date.now()>=expiry-10000)disconnect('Google access expired. Connect again to continue.');});
 function bar(container,name,value,share,colour='') {
@@ -111,19 +114,20 @@ function bar(container,name,value,share,colour='') {
   const track=text('div','','bar-track'),fill=text('div','',`bar-fill ${colour}`);fill.style.width=`${Math.max(0,Math.min(100,share||0))}%`;track.append(fill);row.append(label,track);container.append(row);
 }
 const calculations=new WeakMap();
-function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const account=$('account').value;if(!accounts.has(account))accounts.set(account,buildPortfolio(store.snapshots,store.dividends,account,store.reports||[]));return accounts.get(account);}
+function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(store.snapshots,store.dividends,selectedAccounts??'',store.reports||[]));return accounts.get(key);}
+function selectedSnapshots(){return store.snapshots.filter(s=>selectedAccounts===null||selectedAccounts.includes(s.partition));}
 function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
-  const selected=store.snapshots.filter(s=>!$('account').value||s.partition===$('account').value);
+  const selected=selectedSnapshots();
   const dates=[...new Set(selected.map(s=>s.as_of||'unknown'))].sort();
-  $('freshness').textContent=`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`;
+  $('freshness').textContent=selected.length?`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`:'No accounts selected';
   const warnings=[...store.warnings];
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
-  $('overview-detail').textContent=`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts. Prices saved as of ${dates.join(' · ')}.`;
+  $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts. Prices saved as of ${dates.join(' · ')}.`;
   $('stats').replaceChildren();
   const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?'Annualised · excludes sales/dividends':p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){
@@ -151,7 +155,7 @@ function renderPositions(){
   if(!store)return;const p=current(),query=$('search').value.trim().toLowerCase();$('positions').replaceChildren();
   const rows=p.positions.filter(r=>`${r.name} ${r.key}`.toLowerCase().includes(query));
   for(const r of rows){const tr=document.createElement('tr');const name=text('td','');name.append(text('strong',r.name),text('small',r.accounts.join(' · '),'fine'));tr.append(name);for(const [i,v]of [number(r.quantity),money(r.cost),money(r.value),money(r.pnl),pct(r.returnPct),numeric(r.weight)?r.weight.toFixed(1)+'%':'—'].entries())tr.append(text('td',v,i===3||i===4?(r.pnl<0?'loss':'gain'):''));$('positions').append(tr);}
-  if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':'This account was captured with no holdings.');td.colSpan=7;tr.append(td);$('positions').append(tr);}
+  if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':selectedAccounts?.length===0?'Choose one or more accounts.':'The selected accounts were captured with no holdings.');td.colSpan=7;tr.append(td);$('positions').append(tr);}
   $('holdings-title').textContent=`Holdings · ${p.positions.length}`;$('table-note').textContent=`Showing ${rows.length} of ${p.positions.length}. Grouped by the source’s exact Groww slug; no guessed symbol matching. A dash or “Unavailable” means the inputs are missing.`;
 }
 
@@ -183,7 +187,7 @@ function renderDetails(){
  allocationPage=pageControls('allocation-pages',allocationPage,Math.ceil(p.accounts.length/chartSize),page=>{allocationPage=page;renderDetails();});
  $('allocation').replaceChildren();for(const a of p.accounts.slice(allocationPage*chartSize,(allocationPage+1)*chartSize))bar($('allocation'),a.name,a.value,numeric(p.value)&&p.value>0&&numeric(a.value)?a.value/p.value*100:null);
  $('largest').replaceChildren();for(const r of p.positions.slice(0,5))bar($('largest'),r.name,r.value,r.weight,'violet');
- const selected=store.snapshots.filter(s=>!$('account').value||s.partition===$('account').value);
+ const selected=selectedSnapshots();
  sourcePage=pageControls('source-pages',sourcePage,Math.ceil(selected.length/sourceSize),page=>{sourcePage=page;renderDetails();});
  $('provenance').replaceChildren();for(const s of selected.slice(sourcePage*sourceSize,(sourcePage+1)*sourceSize)){
   const card=text('div','','source-entry');card.append(text('strong',s.partition));
@@ -198,6 +202,34 @@ window.addEventListener('resize',()=>{if(store){sourcePage=warningPage=allocatio
 for(const [button,card]of [['show-accounts','account-chart'],['show-largest','largest-chart']])$(button).addEventListener('click',()=>{
  for(const [b,c]of [['show-accounts','account-chart'],['show-largest','largest-chart']]){$(b).setAttribute('aria-pressed',String(b===button));$(c).classList.toggle('chart-current',c===card);}
 });
+
+const refreshSchedule=new RefreshSchedule({
+ refresh:()=>selectedRoot?openFolder(selectedRoot):false,
+ enabled:()=>Boolean(reader&&token&&Date.now()<expiry&&!busy&&navigator.onLine)
+});
+function resumeRefresh(){if(document.visibilityState==='visible')refreshSchedule.check();}
+window.addEventListener('focus',resumeRefresh);window.addEventListener('online',resumeRefresh);window.addEventListener('pageshow',resumeRefresh);document.addEventListener('visibilitychange',resumeRefresh);
+function renderAccountPicker(){
+ const names=[...new Set(store.snapshots.map(s=>s.partition))].sort();
+ const chosen=names.filter(name=>selectedAccounts===null||selectedAccounts.includes(name));
+ $('account-button').textContent=selectedAccounts===null?'All accounts ▾':chosen.length===0?'Choose accounts ▾':chosen.length===1?chosen[0]+' ▾':chosen.length+' accounts ▾';
+ $('account-button').title=chosen.join(', ');$('account-options').replaceChildren();
+ for(const name of names){const label=text('label','','account-choice'),input=document.createElement('input');input.type='checkbox';input.value=name;input.checked=chosen.includes(name);
+  input.addEventListener('change',()=>{
+   const selected=[...$('account-options').querySelectorAll('input:checked')].map(input=>input.value);
+   selectedAccounts=selected.length===names.length?null:selected.sort();persistAccountChoice();
+   $('account-button').textContent=selectedAccounts===null?'All accounts ▾':!selected.length?'Choose accounts ▾':selected.length===1?selected[0]+' ▾':selected.length+' accounts ▾';
+   $('account-button').title=selected.join(', ');sourcePage=warningPage=allocationPage=0;render();
+  });label.append(input,text('span',name));$('account-options').append(label);
+ }
+}
+function persistAccountChoice(){const saved=saveSelection($('client-id').value.trim(),selectedRoot,selectedAccounts);$('account-save-status').textContent=saved?'Selection saved':'Browser storage blocked; selection lasts for this page only.';}
+function closeAccounts(){ $('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');}
+$('account-button').addEventListener('click',()=>{const open=$('account-panel').hidden;$('account-panel').hidden=!open;$('account-button').setAttribute('aria-expanded',String(open));});
+$('accounts-all').addEventListener('click',()=>{selectedAccounts=null;persistAccountChoice();renderAccountPicker();render();});
+$('accounts-none').addEventListener('click',()=>{selectedAccounts=[];persistAccountChoice();renderAccountPicker();render();});
+document.addEventListener('click',event=>{if(!event.target.closest('.account-picker'))closeAccounts();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('account-panel').hidden){closeAccounts();$('account-button').focus();}});
 
 function rememberSession(){
  sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope});
