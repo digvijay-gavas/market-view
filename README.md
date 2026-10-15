@@ -33,7 +33,7 @@ No real data is bundled. `examples/` has a **synthetic compatible store template
 
 The requested scope is `https://www.googleapis.com/auth/drive.readonly`: read access to all Drive files accessible to the signed-in user, **not folder-scoped permission**. `drive.file` does not provide read access to an arbitrary pre-existing store created by another app. Requests are limited by this app to the selected root and the supported store files. Viewer access is sufficient. Each active user token is used only for that user's Drive requests. Users with access to the same shared folder intentionally see the same data; account dropdowns are not security boundaries.
 
-The user-requested refresh restoration stores only the short-lived Google access token, its expiry, matching public client ID and selected folder ID in tab-scoped sessionStorage. An unexpired session automatically reloads its folder from Drive after refresh; cached portfolio data is shown immediately while Drive metadata is checked for changes. Disconnect, account selection, expiry or an HTTP 401 clears the stored session and displayed data; pending requests are aborted and stale responses ignored. Malformed or client-mismatched sessions are discarded. The public web client ID and per-folder account-selection preferences use localStorage. Storage-blocked browsers still work for the current page but cannot restore it after reload. IndexedDB holds session-scoped portfolio data, but never credentials. No analytics, refresh token, credential file or service worker is used. Disconnect does not revoke Google's consent or sign out of Google globally. The static build is an allowlist: only `index.html`, `SETUP.html`, `.nojekyll`, and `src/` are deployed.
+The user-requested refresh restoration stores only the short-lived Google access token, its expiry, matching public client ID and selected folder ID in tab-scoped sessionStorage. An unexpired session automatically reloads its folder from Drive after refresh; cached portfolio data is shown immediately while Drive metadata is checked for changes. Disconnect, account selection, expiry or an HTTP 401 clears the stored session and displayed data; pending requests are aborted and stale responses ignored. Malformed or client-mismatched sessions are discarded. The public web client ID and per-folder account-selection preferences use localStorage. Storage-blocked browsers still work for the current page but cannot restore it after reload. IndexedDB holds session-scoped portfolio data, but never credentials. No analytics, refresh token, credential file or service worker is used. Disconnect does not revoke Google's consent or sign out of Google globally. The static build is an allowlist: only `index.html`, `SETUP.html`, `privacy.html`, `terms.html`, `.nojekyll`, and `src/` are deployed.
 
 ## Refresh and long-running displays
 
@@ -67,7 +67,7 @@ The repository should remain private if the account plan supports Pages from pri
 3. When ready to publish, run **Deploy Pages (explicit manual approval)** and set `publish_site` to true. The workflow is intentionally manual; pushes do not publish a site. The `github-pages` environment can require a reviewer.
 4. For the resulting `https://OWNER.github.io/REPOSITORY/` URL, register `https://OWNER.github.io` as the Google OAuth JavaScript origin. Relative paths support a repository subpath. No OAuth secret or token is needed in GitHub Actions or repository settings.
 
-The app asks for the public client ID at runtime, so the hosted source contains no user-specific OAuth configuration. The client ID is not a secret. Never upload portfolio files or OAuth desktop JSON into this repository. Production changes require a new manual deployment.
+The app supports an encrypted public client ID in `src/config.js`, unlocked with a PIN. When no encrypted configuration is set, it asks for the public client ID at runtime. The client ID is not a secret. Never upload portfolio files or OAuth desktop JSON into this repository. Production changes require a new manual deployment.
 
 ## Validation
 
@@ -108,3 +108,16 @@ GOLDCASE (`zerodha-gold-etf`, or an exact GOLDCASE symbol/name) is shown as Gold
 Choose any combination in the account checkbox menu, or use Select all / Clear. Selection is saved per OAuth client and Drive folder in localStorage and reapplied after reload and data updates, across every view and calculation. The preference contains only account partition names, not tokens or portfolio amounts. Accounts absent from the current Drive result never contribute values. A blocked-storage message explains when a choice cannot be saved.
 
 The dashboard checks Drive every four hours after the last successful read. Focus, visibility, page restoration and connectivity events check the elapsed wall-clock time so overdue work starts immediately after a missed interval. Concurrent events do not create overlapping reads. Failed checks retry after five minutes without advancing the success timestamp. This is an in-page timer, not an operating-system background job: it requires an open tab, connectivity and a valid Google token. Google tokens generally expire before four hours in this static token flow; reconnecting remains necessary. It cannot guarantee unattended refresh after authorization expiry. Opening/restoring a signed-in dashboard already performs a Drive check, while keeping cached values visible.
+
+## Public OAuth branding links and PIN configuration
+
+Google consent-screen links for this deployment:
+- Home: https://digvijay-gavas.github.io/market-view/
+- Privacy: https://digvijay-gavas.github.io/market-view/privacy.html
+- Terms: https://digvijay-gavas.github.io/market-view/terms.html
+
+These pages are public and accessible without Google sign-in or the app PIN. Google branding/domain/scope verification is a separate process; deployment does not complete that process.
+
+The public OAuth client ID can be stored as encrypted configuration in `src/config.js`. A user-chosen PIN derives an AES-256-GCM key with PBKDF2-SHA-256 (600,000 iterations). A random 16-byte salt and 12-byte IV are committed with the ciphertext; no hardcoded PIN or encryption key is committed. The PIN is entered on each page load and is not remembered. This is a convenience lock for a public identifier, not access control for a public static site. Google authorization and Drive permissions remain the data-access controls. Short PINs can be guessed offline by someone who downloads the configuration. Google tokens still use tab-scoped sessionStorage after authorization.
+
+After Google authorization, a single accessible folder named `market-data` opens automatically. Multiple matching folders require selection; no matching folder shows the existing folder-link entry. A restored session reloads its previously selected folder. Change folder remains available.

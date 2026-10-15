@@ -44,7 +44,7 @@ window.fetch=async function(input,options){
  if(window.location?.search?.includes('denied=1'))return new Response('',{status:403});
  if(url.origin!=='https://www.googleapis.com'||options.headers.Authorization!=='Bearer synthetic-ui-token')throw new Error('Unexpected test request');
  if(url.pathname==='/drive/v3/files') {
-  if(url.searchParams.get('q').includes("name = 'market-data'"))return Response.json({files:[folder('synthetic-root','market-data')]});
+  if(url.searchParams.get('q').includes("name = 'market-data'"))return Response.json({files:window.location?.search?.includes('folders=multiple')?[folder('synthetic-root','market-data'),folder('synthetic-second','market-data')]:[folder('synthetic-root','market-data')]});
   const ids=[...url.searchParams.get('q').matchAll(/'([^']+)' in parents/g)].map(x=>x[1]);
   return Response.json({files:ids.flatMap(id=>children[id]||[])});
  }

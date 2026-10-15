@@ -1,3 +1,5 @@
+import {oauthConfig} from './config.js';
+import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
 import {PortfolioCache,samePortfolio} from './cache.js';
 import {buildPortfolio,numeric} from './model.js';
@@ -5,8 +7,8 @@ import {DriveReader,folderId} from './drive.js';
 import {restoreClientId,saveClientId,restoreSelection,saveSelection} from './preferences.js';
 import {restoreSession,saveSession,clearSession} from './session.js';
 const $=id=>document.getElementById(id);
-$('client-id').value=restoreClientId();
-$('client-id').addEventListener('input',()=>saveClientId($('client-id').value.trim()));
+$('client-id').value=oauthConfig?'':restoreClientId();
+$('client-id').addEventListener('input',()=>{if(!oauthConfig)saveClientId($('client-id').value.trim());});
 const money=x=>numeric(x)?new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(x):'Unavailable';
 const pct=x=>numeric(x)?`${x>=0?'+':''}${x.toFixed(2)}%`:'—';
 const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:3}).format(x):'—';
@@ -44,7 +46,7 @@ $('connect').addEventListener('click',()=>{
       if(response.error||!response.access_token)return status('Google authorization was not completed. Try connecting again.',true);
       if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.readonly'))return status('Drive read-only permission is required to read the existing store.',true);
       activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:''});
-      status('Connected. Choose the Market folder accessible to this Google account.');
+      status('Connected. Finding your Market data…');findFolders(true);
     },error_callback:()=>{if(attempt===generation){$('connect').disabled=false;status('The Google popup was closed or blocked. Allow popups and try again.',true);}}
   });
   try {client.requestAccessToken({prompt:'select_account'});}catch{ $('connect').disabled=false;status('Could not open Google authorization. Check this site’s authorized JavaScript origin in Google Cloud.',true); }
@@ -96,12 +98,18 @@ async function openFolder(id) {
  });
  return succeeded;
 }
-$('find-folders').addEventListener('click',()=>action(async attempt=>{
+async function findFolders(openUnique=false){
+ let target=null;const started=generation;
+ await action(async attempt=>{
   status('Finding folders named market-data…');const folders=await reader.findStores();if(attempt!==generation)return;
   $('folder-results').replaceChildren();
-  for(const f of folders){const b=text('button',`${f.name} · ${f.id.slice(-6)}`);b.addEventListener('click',()=>openFolder(f.id));$('folder-results').append(b);}
+  for(const folder of folders){const button=text('button',`${folder.name} · ${folder.id.slice(-6)}`);button.addEventListener('click',()=>openFolder(folder.id));$('folder-results').append(button);}
+  if(openUnique&&folders.length===1)target=folders[0].id;
   status(folders.length?`Found ${folders.length} folder(s). Choose the intended store. If names repeat, use its exact Drive link.`:'No folder named market-data found. Paste a folder link shared with this Google account.');
-}));
+ });
+ if(target&&started===generation)await openFolder(target);
+}
+$('find-folders').addEventListener('click',()=>findFolders());
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
 $('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot);});
 $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
@@ -241,9 +249,23 @@ function activateSession(session){
  clearTimeout(expireTimer);expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to continue.'),Math.max(0,expiry-Date.now()-10000));
  $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
 }
-const previousSession=restoreSession($('client-id').value.trim());
-if(previousSession){
- activateSession(previousSession);
- if(previousSession.rootId){$('folder-panel').hidden=true;status('Restoring your dashboard from Google Drive…');openFolder(previousSession.rootId);}
- else status('Google session restored. Choose your Market folder.');
+function initializePortfolio(){
+ const previousSession=restoreSession($('client-id').value.trim());
+ if(previousSession){
+  activateSession(previousSession);
+  if(previousSession.rootId){$('folder-panel').hidden=true;status('Restoring your dashboard from Google Drive…');openFolder(previousSession.rootId);}
+  else findFolders(true);
+ }else status('Connect Google Drive to load your Market data automatically.');
 }
+async function unlockApp(){
+ $('unlock').disabled=true;
+ try{
+  const clientId=await decryptClientId(oauthConfig,$('app-pin').value);
+  $('app-pin').value='';$('client-id').value=clientId;$('client-id').readOnly=true;
+  $('unlock-panel').hidden=true;$('connect-panel').hidden=false;initializePortfolio();
+ }catch(error){$('app-pin').value='';status(error.message,true);$('app-pin').focus();}
+ finally{$('unlock').disabled=false;}
+}
+$('unlock').addEventListener('click',unlockApp);$('app-pin').addEventListener('keydown',event=>{if(event.key==='Enter')unlockApp();});
+if(oauthConfig){$('connect-panel').hidden=true;$('unlock-panel').hidden=false;status('Enter your app PIN to continue.');}
+else initializePortfolio();

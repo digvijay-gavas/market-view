@@ -103,3 +103,5 @@
 .account-choice input{width:19px;height:19px;min-height:0;padding:0;accent-color:var(--accent)}#account-save-status{margin:7px 0 0;font-size:10px}
 
 @media(max-width:1050px){.account-panel{left:0;right:auto;width:min(300px,calc(100vw - 48px));min-width:0}}
+
+.policy-page main{max-width:900px;padding-bottom:48px}.policy-heading{padding:45px 0 20px}.policy-page h1{font-size:42px;letter-spacing:-1px}.policy-page section{padding:22px 0;border-top:1px solid var(--line)}.policy-page h2{font-size:21px}.policy-page p{line-height:1.75;color:#c7cfcc}.policy-links{display:flex;flex-wrap:wrap;gap:20px;padding:24px 0;border-top:1px solid var(--line)}

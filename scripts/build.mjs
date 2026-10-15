@@ -2,7 +2,7 @@ import {mkdir,copyFile,cp,readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 const root=fileURLToPath(new URL('../',import.meta.url));
 await mkdir(new URL('../dist/',import.meta.url),{recursive:true});
-for(const name of ['index.html','SETUP.html','.nojekyll'])await copyFile(root+name,root+'dist/'+name);
+for(const name of ['index.html','SETUP.html','privacy.html','terms.html','.nojekyll'])await copyFile(root+name,root+'dist/'+name);
 await cp(root+'src',root+'dist/src',{recursive:true});
 // Deployment is a strict allowlist; tests, local data and credentials are never copied.
 const html=await readFile(root+'dist/index.html','utf8');

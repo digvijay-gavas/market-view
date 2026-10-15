@@ -14,7 +14,7 @@ test('full Drive store traversal produces correct totals and stale-data warnings
 });
 test('production build allowlist excludes synthetic browser fixture and all example data',async()=>{
  const build=await readFile(new URL('../scripts/build.mjs',import.meta.url),'utf8');
- assert.match(build,/\['index.html','SETUP.html','\.nojekyll'\]/);
+ assert.match(build,/\['index.html','SETUP.html','privacy.html','terms.html','\.nojekyll'\]/);
  assert.doesNotMatch(build,/cp\(root\+'(?:tests|examples)'/);
 });
 
