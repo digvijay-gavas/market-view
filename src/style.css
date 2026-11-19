@@ -125,3 +125,13 @@
 }
 
 @media(max-width:700px){.stock-list .holding-row.other td:nth-child(n+8),.stock-list .holding-row.removed td:nth-child(n+8){display:none}}
+
+/* Phones use one page scroll, so the dashboard controls leave the viewport. */
+@media(max-width:700px){
+ .app-loaded body{height:auto;min-height:100dvh;overflow:visible;display:block}
+ .app-loaded main{flex:none;height:auto;overflow:visible}
+ .app-loaded #dashboard,.app-loaded .view-panel,.app-loaded .positions{flex:none;height:auto;max-height:none;overflow:visible}
+ .app-loaded .stock-list{flex:none;height:auto;max-height:none;overflow:visible;overscroll-behavior:auto}
+ .app-loaded #bm-note{max-height:none;overflow:visible}
+ .app-loaded .overview-note{max-height:none}.app-loaded .about-card{height:auto}
+}

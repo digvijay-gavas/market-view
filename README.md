@@ -124,7 +124,7 @@ After Google authorization, a single accessible folder named `market-data` opens
 
 ## BM on mobile and historical membership
 
-Holdings offers All holdings, BM, Not held and Removed filters. BM includes current constituents not held in the selected accounts as labelled placeholders; placeholders never affect portfolio totals. Mobile uses compact holding cards. Removed badges require a matching member in an older validated `smallcase.constituents/bamimo_0002` capture and absence from the latest capture. Missing history is stated explicitly; other holdings are not guessed to be former members.
+Holdings offers All holdings, BM, Not held and Removed filters. BM includes current constituents not held in the selected accounts as labelled placeholders; placeholders never affect portfolio totals. Mobile uses compact holding cards and one page scroll: the header, tabs and filters scroll away, leaving the screen for the holdings. Desktop keeps its bounded scrolling table. Removed badges require a matching member in an older validated `smallcase.constituents/bamimo_0002` capture and absence from the latest capture. Missing history is stated explicitly; other holdings are not guessed to be former members.
 
 BM target weights now cover the full current lineup, including missing members, and sum to 100%. BM current uses only selected BM holdings. This replaces the earlier held-only renormalisation so missing positions have comparable target/current percentages. Targets use the latest saved capture; dates remain visible. Membership resolves by explicit slug/ISIN or unique normalized full company name/Groww slug; ambiguous entries are marked unresolved.
 
