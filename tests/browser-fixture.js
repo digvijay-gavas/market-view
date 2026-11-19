@@ -38,9 +38,9 @@ if(window.location?.search?.includes('xirr=1')){
 }
 if(window.location?.search?.includes('bm=1')){
  children['synthetic-root'].push(folder('bm','smallcase.constituents'));
- children.bm=[folder('bm-partition','BAMIMO_0002')];children['bm-partition']=[file('bm-capture','20260101T100000Z__aaaaaaaaaaaa.json')];
+ children.bm=[folder('bm-partition','bamimo_0002')];children['bm-partition']=[file('bm-capture','20260101T100000Z__aaaaaaaaaaaa.json')];
  docs.catalog.datasets['smallcase.constituents']={version:1,semantics:'latest'};
- docs['bm-capture']={...snap('BAMIMO_0002',[]),dataset:'smallcase.constituents',meta:{id:'BAMIMO_0002',name:'Synthetic BM'},tables:{stocks:[{name:'SYNTHETIC Alpha',weight:40},{name:'SYNTHETIC Beta',weight:60}]}};
+ docs['bm-capture']={...snap('bamimo_0002',[]),dataset:'smallcase.constituents',meta:{id:'BAMIMO_0002',name:'Synthetic BM'},tables:{stocks:[{name:'SYNTHETIC Alpha',weight:40},{name:'SYNTHETIC Beta',weight:60}]}};
 }
 let mediaDownloads=0;
 window.fetch=async function(input,options){

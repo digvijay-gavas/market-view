@@ -37,3 +37,13 @@ test('a changed BM capture invalidates cached portfolio rendering',()=>{
  const b=structuredClone(a);b.smallcases[0].tables.stocks[0].weight=40;assert.equal(samePortfolio(a,b),false);
  assert.equal(samePortfolio({},a),false);
 });
+
+// Regression: this is the contract produced by Market Store.publish/partition_key.
+// The folder/envelope are lowercase while source metadata retains uppercase ID.
+test('canonical lowercase BM envelope loads and calculates with uppercase source metadata',()=>{
+ const capture=source(stocks,{partition:'bamimo_0002'});
+ assert.equal(validateSnapshot(capture,'smallcase.constituents','bamimo_0002'),capture);
+ const p=attachBm(positions,[capture]);assert.equal(p.bm.available,true);
+ assert.equal(p.positions[0].bmTarget,40);assert.equal(p.positions[0].bmWeight,75);
+ assert.throws(()=>validateSnapshot(source(stocks,{partition:'bamimo_0002',meta:{id:'OTHER'}}),'smallcase.constituents','bamimo_0002'));
+});

@@ -1,3 +1,4 @@
+import {isBmPartition} from './bm.js';
 import {fileRevision} from './cache.js';
 import {SNAPSHOT, newestValid, validateSnapshot, confirmationAt} from './model.js';
 const API='https://www.googleapis.com/drive/v3';
@@ -88,7 +89,7 @@ export class DriveReader {
       let completed=0;
       const index=['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents'].indexOf(dataset);
       for(const [partition,ids] of groups) {
-        if(dataset==='smallcase.constituents'&&partition!=='BAMIMO_0002')continue;
+        if(dataset==='smallcase.constituents'&&!isBmPartition(partition))continue;
         const label={'groww.live_holdings':'holdings','groww.dividend_report':'dividends','groww.pnl_report':'purchase lots','smallcase.constituents':'BM targets'}[dataset];
         onProgress(`Loading ${label}…`,35+index*13+(completed++/groups.size)*13);
         const files=(await this.children(ids)).filter(f=>SNAPSHOT.test(f.name));
