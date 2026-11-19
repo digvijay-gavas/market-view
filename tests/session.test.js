@@ -34,3 +34,8 @@ test('cache scope survives refresh without persisting credentials in the databas
  const storage=memory();saveSession({...record,cacheScope:'synthetic-random-scope'},{storage,now});
  assert.equal(restoreSession(client,{storage,now}).cacheScope,'synthetic-random-scope');
 });
+
+test('restored session remembers granted Drive cache capability, never assumes it for old sessions',()=>{
+ const storage=memory();saveSession({...record,driveCache:true},{storage,now});assert.equal(restoreSession(client,{storage,now}).driveCache,true);
+ saveSession(record,{storage,now});assert.equal(restoreSession(client,{storage,now}).driveCache,undefined);
+});

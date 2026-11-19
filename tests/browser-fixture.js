@@ -1,6 +1,6 @@
 // Browser-only synthetic fixture, served exclusively by scripts/fixture-server.mjs.
 // No production data or Google requests. Deliberately not a node test file.
-window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken:()=>options.callback({access_token:'synthetic-ui-token',expires_in:3600})}),hasGrantedAllScopes:()=>true}}};
+window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken:()=>options.callback({access_token:'synthetic-ui-token',expires_in:3600})}),hasGrantedAllScopes:(response,scope)=>!scope?.endsWith('drive.appdata')||!window.location?.search?.includes('nocache=1')}}};
 const folder=(id,name)=>({id,name,mimeType:'application/vnd.google-apps.folder'});
 const file=(id,name)=>({id,name,mimeType:'application/json',version:'1'});
 const hash='sha256:'+'a'.repeat(64);
@@ -42,6 +42,13 @@ if(window.location?.search?.includes('bm=1')){
  docs.catalog.datasets['smallcase.constituents']={version:1,semantics:'latest'};
  docs['bm-capture']={...snap('bamimo_0002',[]),dataset:'smallcase.constituents',meta:{id:'BAMIMO_0002',name:'Synthetic BM'},tables:{stocks:[{name:'SYNTHETIC Alpha',weight:40},{name:'SYNTHETIC Beta',weight:60}]}};
 }
+if(window.location?.search?.includes('history=1')&&docs['bm-capture']){
+ const old=structuredClone(docs['bm-capture']);old.captured_at='2025-12-01T10:00:00Z';old.as_of='2025-12-01';old.content_hash='sha256:'+'b'.repeat(64);
+ children['bm-partition'].push(file('bm-previous','20251201T100000Z__bbbbbbbbbbbb.json'));docs['bm-previous']=old;
+ docs['bm-capture'].tables.stocks=[{name:'SYNTHETIC Alpha',weight:70},{name:'SYNTHETIC New Member',weight:30}];
+}
+let appCacheFile=null,appCacheData=null;
+if(typeof localStorage!=='undefined'){try{appCacheData=JSON.parse(localStorage.getItem('marketView.syntheticDriveCache'));if(appCacheData)appCacheFile={id:'synthetic-cache',size:'1000',name:localStorage.getItem('marketView.syntheticCacheName')};}catch{}}
 let mediaDownloads=0;
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
@@ -50,6 +57,16 @@ window.fetch=async function(input,options){
  if(window.location?.search?.includes('offline=1'))throw new TypeError('Synthetic offline');
  if(window.location?.search?.includes('denied=1'))return new Response('',{status:403});
  if(url.origin!=='https://www.googleapis.com'||options.headers.Authorization!=='Bearer synthetic-ui-token')throw new Error('Unexpected test request');
+ if(url.pathname==='/upload/drive/v3/files/synthetic-cache'&&options.method==='PATCH'){
+  appCacheData=JSON.parse(options.body);if(typeof localStorage!=='undefined')localStorage.setItem('marketView.syntheticDriveCache',options.body);return Response.json({id:'synthetic-cache'});
+ }
+ if(url.pathname==='/drive/v3/files/synthetic-cache')return Response.json(appCacheData);
+ if(url.pathname==='/drive/v3/files'&&options.method==='POST'){
+  const metadata=JSON.parse(options.body);if(metadata.parents?.[0]!=='appDataFolder')throw new Error('Unexpected fixture write');
+  appCacheFile={id:'synthetic-cache',name:metadata.name,size:'1000'};if(typeof localStorage!=='undefined')localStorage.setItem('marketView.syntheticCacheName',metadata.name);return Response.json({id:'synthetic-cache'});
+ }
+ if(url.searchParams.get('spaces')==='appDataFolder')return Response.json({files:appCacheFile&&url.searchParams.get('q').includes(appCacheFile.name)?[appCacheFile]:[]});
+ if(window.location?.search?.includes('updatefail=1')&&url.pathname==='/drive/v3/files')throw new TypeError('Synthetic update failed');
  if(url.pathname==='/drive/v3/files') {
   if(url.searchParams.get('q').includes("name = 'market-data'"))return Response.json({files:window.location?.search?.includes('folders=multiple')?[folder('synthetic-root','market-data'),folder('synthetic-second','market-data')]:[folder('synthetic-root','market-data')]});
   const ids=[...url.searchParams.get('q').matchAll(/'([^']+)' in parents/g)].map(x=>x[1]);

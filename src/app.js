@@ -1,3 +1,5 @@
+import {bmRows} from './bm.js';
+import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge} from './drive-cache.js';
 import {oauthConfig} from './config.js';
 import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
@@ -15,11 +17,13 @@ const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:
 const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'Unknown';
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
+let bmFilter='all',cloudCache=null,cacheSavedAt=null,cacheMessage='';
 let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
 const loading=(message,value=0)=>{$('load-progress').hidden=false;$('loading-bar').value=value;status(message);};
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
   $('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');
+  bmFilter='all';cloudCache=null;cacheSavedAt=null;cacheMessage='';$('cache-state').textContent='';
   generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
@@ -42,13 +46,13 @@ $('connect').addEventListener('click',()=>{
   if(!/^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId))return status('Enter the public client ID of a Google Web application OAuth client.',true);
   if(!window.google?.accounts?.oauth2)return status('Google Identity Services did not load. Check your connection or browser content blocker, then try again.',true);
   $('connect').disabled=true;const attempt=generation;
-  const client=google.accounts.oauth2.initTokenClient({client_id:clientId,scope:'https://www.googleapis.com/auth/drive.readonly',include_granted_scopes:false,
+  const client=google.accounts.oauth2.initTokenClient({client_id:clientId,scope:READ_SCOPE+($('drive-cache-opt').checked?' '+CACHE_SCOPE:''),include_granted_scopes:false,
     callback:response=>{
       if(attempt!==generation)return;
       $('connect').disabled=false;
       if(response.error||!response.access_token)return status('Google authorization was not completed. Try connecting again.',true);
       if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.readonly'))return status('Drive read-only permission is required to read the existing store.',true);
-      activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:''});
+      activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:'',driveCache:$('drive-cache-opt').checked&&google.accounts.oauth2.hasGrantedAllScopes(response,CACHE_SCOPE)});
       status('Connected. Finding your Market data…');findFolders(true);
     },error_callback:()=>{if(attempt===generation){$('connect').disabled=false;status('The Google popup was closed or blocked. Allow popups and try again.',true);}}
   });
@@ -63,44 +67,62 @@ async function action(work) {
   try {await work(attempt);}catch(e){if(attempt!==generation||e.name==='AbortError')return;if(e.authExpired)disconnect(e.message);else {if(!store)$('folder-panel').hidden=false;status(e.message||'Could not load Drive data.',true);}}
   finally{if(attempt===generation){busy=false;$('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;}}
 }
-function displayStore(result,id){
+function displayStore(result,id,views){
+ if(views)calculations.set(result,new Map(views));
  store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
  if(selectionRoot!==id){selectedAccounts=restoreSelection($('client-id').value.trim(),id);selectionRoot=id;}
  renderAccountPicker();
  $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();
 }
+function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=(cacheSavedAt?'Dashboard cached '+cacheAge(cacheSavedAt)+' · ':'')+message;}
 async function openFolder(id) {
  if(busy)return false;
  let succeeded=false;
- if(selectedRoot!==id){refreshSchedule.stop();store=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;
-  for(const key of ['positions','stats','allocation','largest','provenance','warnings'])$(key).replaceChildren();
-  $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('search').value='';
- }
+ if(selectedRoot!==id){refreshSchedule.stop();store=null;cacheSavedAt=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;}
  await action(async attempt=>{
-  const cache=portfolioCache;
-  const cached=await cache?.get('portfolio:'+id);
+  const cache=portfolioCache,drive=reader,cloud=cloudCache;
+  let cached=await cache?.get('portfolio:'+id),saved=null,cloudWarning='';
   if(attempt!==generation)return;
-  if(cached){displayStore(cached,id);refreshSchedule.succeeded(Date.parse(cached.loadedAt));status('Showing cached portfolio. Checking Google Drive for changes…');}
-  else status('Opening the Drive store…');
   try{
-   const result=await reader.load(id,(message,value)=>{if(attempt===generation)loading(message,value);});
+   // Validate current source access before revealing any cross-login cached portfolio.
+   const root=await drive.get('/files/'+encodeURIComponent(id),{fields:'id,name,mimeType,trashed',supportsAllDrives:'true'});
+   if(root.trashed||root.mimeType!=='application/vnd.google-apps.folder')throw Object.assign(new Error('Source folder unavailable.'),{accessDenied:true});
    if(attempt!==generation)return;
-   await cache?.set('portfolio:'+id,result);
+   if(!cached&&cloud){
+    try{saved=await cloud.load(id);}catch(error){if(error.authExpired||error.name==='AbortError')throw error;cloudWarning='Drive cache unavailable; using source files.';}
+    if(attempt!==generation)return;
+    if(saved){cached=saved.store;cacheSavedAt=saved.savedAt;}
+   }
+   if(cached){
+    cacheSavedAt=cacheSavedAt||cached.loadedAt;
+    displayStore(cached,id,saved?.views);cacheStatus('Checking for updates in background…');
+    $('load-progress').hidden=true;status('Showing saved dashboard. Checking Drive in background…');
+   }else{cacheStatus(cloudWarning||'Building your dashboard…');status('Loading saved portfolio files…');}
+   const result=await drive.load(id,(message,value)=>{if(attempt===generation&&!cached)loading(message,value);});
    if(attempt!==generation)return;
+   await cache?.set('portfolio:'+id,result);if(attempt!==generation)return;
    if(!cached||!samePortfolio(cached,result))displayStore(result,id);
-   else {store.loadedAt=result.loadedAt;$('freshness').textContent=$('freshness').textContent.replace(/ · Read .*/,` · Read ${stamp(result.loadedAt)}`);}
+   else {store.loadedAt=result.loadedAt;render();}
    rememberSession();succeeded=true;refreshSchedule.succeeded(Date.parse(result.loadedAt));
-   status('Checked Google Drive. Saved capture prices; no live quotes.'+(cache?.disabled?' Browser cache unavailable.':'')+(sessionRemembered?'':' Refresh will require reconnecting.'));
+   cacheSavedAt=result.loadedAt;cacheStatus(cloud?'Up to date · saving Drive cache…':'Up to date · Drive cache off (reconnect to enable).');
+   status('Checked Google Drive. Saved capture prices; no live quotes.');
+   if(cloud){
+    try{
+     // Save the computed all-accounts view and selected view; account switches remain local.
+     const views=calculations.get(store)||new Map();
+     if(!views.has('null'))views.set('null',buildPortfolio(store.snapshots,store.dividends,'',store.reports||[],store.smallcases||[]));
+     await cloud.save(id,makeDriveCache(store,views));
+     if(attempt===generation)cacheStatus('Up to date · saved to Drive.');
+    }catch(error){if(attempt!==generation)return;if(error.authExpired||error.name==='AbortError')throw error;cacheStatus('Up to date · could not save Drive cache; will retry on refresh.');}
+   }
   }catch(error){
    if(attempt!==generation)throw error;
    if(error.authExpired)throw error;
-   // A denied or deleted root must never leave cached private values on screen.
-   if(error.accessDenied){store=null;$('dashboard').hidden=true;document.documentElement.classList.remove('app-loaded');await cache?.clear();portfolioCache=null;}
-   else if(cached){status('Showing cached data from '+stamp(cached.loadedAt)+'. Drive check failed; this data may be out of date.',true);return;}
+   if(error.accessDenied){store=null;$('dashboard').hidden=true;document.documentElement.classList.remove('app-loaded');await cache?.clear();portfolioCache=null;cacheSavedAt=null;}
+   else if(cached&&store){cacheStatus('Update failed · showing saved data. Retry with Refresh snapshots.');status('Showing saved dashboard; Drive update failed.',true);return;}
    throw error;
   }
- });
- return succeeded;
+ });return succeeded;
 }
 async function findFolders(openUnique=false){
  let target=null;const started=generation;
@@ -164,13 +186,34 @@ function render() {
   renderPositions();
 }
 function renderPositions(){
-  if(!store)return;const p=current(),query=$('search').value.trim().toLowerCase();$('positions').replaceChildren();
-  const rows=p.positions.filter(r=>`${r.name} ${r.key}`.toLowerCase().includes(query));
-  for(const r of rows){const tr=document.createElement('tr');const name=text('td','');name.append(text('strong',r.name),text('small',r.accounts.join(' · '),'fine'));tr.append(name);for(const [i,v]of [number(r.quantity),money(r.cost),money(r.value),money(r.pnl),pct(r.returnPct),numeric(r.weight)?r.weight.toFixed(1)+'%':'—',numeric(r.bmTarget)?r.bmTarget.toFixed(1)+'%':'—',numeric(r.bmWeight)?r.bmWeight.toFixed(1)+'%':'—',numeric(r.bmDrift)?`${r.bmDrift>=0?'+':''}${r.bmDrift.toFixed(1)} pp`:'—'].entries())tr.append(text('td',v,i===3||i===4?(r.pnl<0?'loss':'gain'):''));$('positions').append(tr);}
-  if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':selectedAccounts?.length===0?'Choose one or more accounts.':'The selected accounts were captured with no holdings.');td.colSpan=10;tr.append(td);$('positions').append(tr);}
-  $('bm-note').textContent=p.bm.available?`${p.bm.name} · Saved ${stamp(p.bm.capturedAt)}${p.bm.asOf?' · Rebalance '+p.bm.asOf:''}. BM target/current are percentages within BM holdings; targets renormalised over matched members held. Difference = current − target (percentage points).${p.bm.missing.length?' Not held or unresolved: '+p.bm.missing.join(', ')+'.':''}${p.bm.ambiguous.length?' Ambiguous names excluded: '+p.bm.ambiguous.join(', ')+'.':''}`:p.bm.reason;
-  $('holdings-title').textContent=`Holdings · ${p.positions.length}`;$('table-note').textContent=`Showing ${rows.length} of ${p.positions.length}. Grouped by the source’s exact Groww slug; no guessed symbol matching. A dash or “Unavailable” means the inputs are missing.`;
+ if(!store)return;const p=current(),query=$('search').value;
+ const rows=bmRows(p,bmFilter,query);$('positions').replaceChildren();
+ const pending=p.accounts.length?(p.bm.pending||[]).length:0,removed=p.positions.filter(r=>r.bmState==='removed').length,missing=(p.bm.pending||[]).filter(r=>r.bmState==='missing').length;
+ for(const [filter,label,count]of [['all','All holdings',p.positions.length],['bm','BM',p.bm.matched+pending||0],['missing','Not held',p.accounts.length?missing:0],['removed','Removed',removed]]){
+  const b=$('filter-'+filter);b.textContent=label+' '+count;b.setAttribute('aria-pressed',String(bmFilter===filter));
+ }
+ const labels=['Quantity','Invested','Value','Unrealised','Return','Portfolio %','BM target','BM current','BM diff.'];
+ for(const r of rows){
+  const tr=document.createElement('tr');tr.className='holding-row '+r.bmState;
+  const name=text('td','','holding-name');name.append(text('strong',r.name));
+  if(r.bmState!=='other'){
+   const label={member:'BM',missing:'Not held',unresolved:'Match unclear',removed:'Removed from BM'}[r.bmState];
+   name.append(text('span',label,'bm-badge '+r.bmState));
+  }
+  name.append(text('small',r.bmState==='unresolved'?'Needs an exact instrument match':r.placeholder?'Not held in selected accounts':r.accounts.join(' · '),'fine'));
+  if(r.removedSince)name.append(text('small','Absent from BM since '+r.removedSince.slice(0,10),'fine'));
+  tr.append(name);
+  const share=n=>numeric(n)?n.toFixed(1)+'%':'—';
+  const values=[number(r.quantity),r.placeholder?'—':money(r.cost),r.placeholder?'—':money(r.value),r.placeholder?'—':money(r.pnl),pct(r.returnPct),share(r.weight),share(r.bmTarget),share(r.bmWeight),numeric(r.bmDrift)?`${r.bmDrift>=0?'+':''}${r.bmDrift.toFixed(1)} pp`:'—'];
+  for(const [i,v]of values.entries()){const cell=text('td',v,i===3||i===4?(r.pnl<0?'loss':'gain'):'');cell.dataset.label=labels[i];tr.append(cell);}
+  $('positions').append(tr);
+ }
+ if(!rows.length){const tr=document.createElement('tr'),td=text('td',!p.accounts.length?'Choose one or more accounts.':bmFilter==='removed'&&!p.bm.historyAvailable?'Removal history unavailable. Publish an older BM capture to identify removed holdings.':'No matching entries.');td.colSpan=10;tr.append(td);$('positions').append(tr);}
+ $('holdings-title').textContent=bmFilter==='all'?'Holdings · '+p.positions.length:'BM · '+rows.length;
+ $('bm-note').textContent=p.bm.available?`BM rebalance ${p.bm.asOf||'unknown'} · saved ${stamp(p.bm.capturedAt)}. Targets cover the full current BM lineup. Current % uses BM holdings only. ${p.bm.historyAvailable?'Removed badges use saved membership history.':'No older BM capture: removals cannot be identified.'}`:p.bm.reason;
+ $('table-note').textContent=`${rows.length} entries · Not-held placeholders never affect portfolio totals. Difference = current − target (percentage points).`;
 }
+for(const filter of ['all','bm','missing','removed'])$('filter-'+filter).addEventListener('click',()=>{bmFilter=filter;renderPositions();});
 
 function showView(view,focus=false){
  activeView=view;
@@ -245,12 +288,12 @@ document.addEventListener('click',event=>{if(!event.target.closest('.account-pic
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('account-panel').hidden){closeAccounts();$('account-button').focus();}});
 
 function rememberSession(){
- sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope});
+ sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope,driveCache:Boolean(cloudCache)});
 }
 function activateSession(session){
  token=session.accessToken;expiry=session.expiresAt;selectedRoot=session.rootId||null;
  portfolioCache=new PortfolioCache(session.cacheScope||crypto.randomUUID(),expiry);
- controller=new AbortController();reader=new DriveReader(token,{signal:controller.signal,cache:portfolioCache});rememberSession();
+ controller=new AbortController();cloudCache=session.driveCache===true?new DriveDashboardCache(token,{signal:controller.signal}):null;reader=new DriveReader(token,{signal:controller.signal,cache:portfolioCache});rememberSession();
  clearTimeout(expireTimer);expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to continue.'),Math.max(0,expiry-Date.now()-10000));
  $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
 }
@@ -275,3 +318,4 @@ async function unlockApp(){
 $('unlock').addEventListener('click',unlockApp);$('app-pin').addEventListener('keydown',event=>{if(event.key==='Enter')unlockApp();});
 if(oauthConfig){$('connect-panel').hidden=true;$('unlock-panel').hidden=false;status('Enter your app PIN to continue.');}
 else initializePortfolio();
+setInterval(()=>{if(store)cacheStatus(cacheMessage);},60000);

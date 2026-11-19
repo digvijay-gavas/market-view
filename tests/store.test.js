@@ -50,3 +50,10 @@ test('Drive loads canonical lowercase BM partition with uppercase source ID, rep
  assert.ok(progress.every((v,i)=>Number.isFinite(v)&&v>=0&&v<=100&&(!i||v>=progress[i-1])));
  assert.ok(store.warnings.some(w=>w.includes('Skipped')));
 });
+
+test('historical BM snapshots identify held removals and missing members without changing totals',async()=>{
+ const context={window:{location:{search:'?bm=1&history=1'}},URL,Response,structuredClone};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ const reader=new DriveReader('synthetic-ui-token',{fetcher:(...args)=>context.window.fetch(...args)});const store=await reader.load('synthetic-root');assert.equal(store.smallcases.length,2);
+ const p=buildPortfolio(store.snapshots,[],'',[],store.smallcases);assert.equal(p.value,2600);assert.equal(p.positions.length,2);
+ assert.equal(p.positions.find(r=>r.key==='synthetic-beta').bmState,'removed');assert.equal(p.bm.pending[0].name,'SYNTHETIC New Member');assert.equal(p.bm.pending[0].bmTarget,30);
+});

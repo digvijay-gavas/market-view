@@ -95,7 +95,14 @@ export class DriveReader {
         const files=(await this.children(ids)).filter(f=>SNAPSHOT.test(f.name));
         if(dataset==='smallcase.constituents'){
           const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
-          if(doc)smallcases.push(doc);else warnings.push('No readable BM constituents capture; BM targets unavailable.');
+          if(doc){
+            smallcases.push(doc);const seen=new Set([doc.content_hash]);
+            const older=files.filter(f=>f.id!==doc.fileId&&f.name<files.find(f=>f.id===doc.fileId).name).sort((a,b)=>b.name.localeCompare(a.name));
+            for(const file of older){
+              const previous=await newestValid([file],f=>this.readJSON(f),dataset,partition,skip);
+              if(previous&&!seen.has(previous.content_hash)){smallcases.push(previous);seen.add(previous.content_hash);}
+            }
+          }else warnings.push('No readable BM constituents capture; BM targets unavailable.');
         } else if(dataset==='groww.live_holdings') {
           const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
           if(doc)snapshots.push(doc);else warnings.push(`No readable holdings capture for ${partition}; account excluded from totals.`);
