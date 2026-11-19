@@ -4,7 +4,7 @@ import {instrumentIsins} from './instruments.js';
 export const isBmPartition=value=>typeof value==='string'&&value.toLowerCase()==='bamimo_0002';
 
 // Same company-name normalization as Market's BM reader; never substring/fuzzy match.
-const key=name=>String(name||'').toLowerCase().replace(/\b(ltd|limited|india|the|company|co|corp|corpn|industries|enterprises|technologies|services|systems|financial|finance)\b/g,' ').replace(/[^a-z0-9]/g,'');
+const key=name=>String(name||'').toLowerCase().replace(/-/g,' ').replace(/\b(ltd|limited|india|the|company|co|corp|corpn|industries|enterprises|technologies|services|systems|financial|finance)\b/g,' ').replace(/[^a-z0-9]/g,'');
 const number=x=>typeof x==='number'&&Number.isFinite(x);
 export function attachBm(positions, snapshots=[]) {
  const source=snapshots.find(s=>isBmPartition(s.partition));
@@ -14,7 +14,7 @@ export function attachBm(positions, snapshots=[]) {
  if(!stocks.length)return unavailable('BM targets unavailable: the saved capture has no positive target weights.');
  const matches=new Map(), used=new Set(), ambiguous=[];
  for(const stock of stocks){
-  const candidates=positions.filter(p=>stock.groww_slug?p.key===stock.groww_slug:stock.isin?instrumentIsins[p.key]===stock.isin:key(p.name)&&key(p.name)===key(stock.name));
+  const candidates=positions.filter(p=>stock.groww_slug?p.key===stock.groww_slug:stock.isin?instrumentIsins[p.key]===stock.isin:key(stock.name)&&(key(p.name)===key(stock.name)||key(p.key)===key(stock.name)));
   const sameName=stocks.filter(s=>key(s.name)===key(stock.name));
   if(candidates.length===1&&sameName.length===1&&!used.has(candidates[0].key)){
    matches.set(candidates[0].key,stock);used.add(candidates[0].key);

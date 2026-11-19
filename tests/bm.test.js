@@ -47,3 +47,21 @@ test('canonical lowercase BM envelope loads and calculates with uppercase source
  assert.equal(p.positions[0].bmTarget,40);assert.equal(p.positions[0].bmWeight,75);
  assert.throws(()=>validateSnapshot(source(stocks,{partition:'bamimo_0002',meta:{id:'OTHER'}}),'smallcase.constituents','bamimo_0002'));
 });
+
+test('full constituent names match stable Groww slugs when display names are abbreviated',()=>{
+ const names=[
+  ['sona-blw-precision-forgings-ltd','Sona BLW Precision','Sona BLW Precision Forgings Ltd'],
+  ['ujjivan-small-finance-bank-ltd','Ujjivan Small Fin','Ujjivan Small Finance Bank Ltd'],
+  ['fedbank-financial-services-ltd','Fedbank Fin.l Serv.','Fedbank Financial Services Ltd'],
+  ['mas-financial-services-ltd','MAS Financial Serv.','MAS Financial Services Ltd'],
+  ['safari-industries-india-ltd','Safari Industries(I)','Safari Industries (India) Ltd'],
+  ['artemis-medicare-services-ltd','Artemis MedicareServ','Artemis Medicare Services Ltd'],
+  ['caliber-mining-and-logistics-ltd','Caliber Mining & Log','Caliber Mining and Logistics Ltd']
+ ];
+ const positions=names.map(([slug,name])=>({key:slug,name,value:100}));
+ const capture=source(names.map(([slug,name,full])=>({name:full,weight:10})),{partition:'bamimo_0002'});
+ const p=attachBm(positions,[capture]);assert.equal(p.bm.matched,7);assert.deepEqual(p.bm.missing,[]);
+ for(const row of p.positions){assert.ok(Math.abs(row.bmTarget-100/7)<1e-9);assert.ok(Math.abs(row.bmWeight-100/7)<1e-9);}
+ // A slug collision remains ambiguous, rather than silently choosing a holding.
+ assert.equal(attachBm([...positions,{key:'safari-industries-ltd',name:'Different label',value:10}],[capture]).positions[4].bmTarget,null);
+});
