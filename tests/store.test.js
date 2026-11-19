@@ -57,3 +57,21 @@ test('historical BM snapshots identify held removals and missing members without
  const p=buildPortfolio(store.snapshots,[],'',[],store.smallcases);assert.equal(p.value,2600);assert.equal(p.positions.length,2);
  assert.equal(p.positions.find(r=>r.key==='synthetic-beta').bmState,'removed');assert.equal(p.bm.pending[0].name,'SYNTHETIC New Member');assert.equal(p.bm.pending[0].bmTarget,30);
 });
+
+test('snapshot manifest checks only metadata, ignores cache/log writes, and detects source changes',async()=>{
+ const context={window:{},URL,Response};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ let downloads=0;const reader=new DriveReader('synthetic-ui-token',{fetcher:(url,o)=>{if(url.searchParams.get('alt')==='media')downloads++;return context.window.fetch(url,o);}});
+ const first=await reader.snapshotSignature('synthetic-root');assert.match(first,/^sha256:[0-9a-f]{64}$/);assert.equal(downloads,0);
+ vm.runInNewContext("children['synthetic-root'].push(file('shared-cache','_market-view-dashboard-cache.json'));children['synthetic-root'].push(folder('log','_log'));children.log=[file('confirmations','writer.jsonl')]",context);
+ assert.equal(await reader.snapshotSignature('synthetic-root'),first,'confirmation and derived cache writes cannot trigger recalculation');
+ vm.runInNewContext("children['account-one'][0].version='2'",context);
+ const revised=await reader.snapshotSignature('synthetic-root');assert.notEqual(revised,first);
+ vm.runInNewContext("children['account-one'].push(file('new','20260102T100000Z__bbbbbbbbbbbb.json'))",context);
+ assert.notEqual(await reader.snapshotSignature('synthetic-root'),revised);assert.equal(downloads,0);
+});
+test('unversioned source metadata never falsely claims cached snapshot calculations are current',async()=>{
+ const context={window:{},URL,Response};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ vm.runInNewContext("delete children['account-one'][0].version",context);
+ const reader=new DriveReader('synthetic-ui-token',{fetcher:(...args)=>context.window.fetch(...args)});
+ assert.equal(await reader.snapshotSignature('synthetic-root'),null);
+});

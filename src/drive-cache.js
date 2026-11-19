@@ -1,8 +1,11 @@
 import {validateSnapshot,numeric} from './model.js';
 export const READ_SCOPE='https://www.googleapis.com/auth/drive.readonly';
-export const CACHE_SCOPE='https://www.googleapis.com/auth/drive.appdata';
-export const CACHE_VERSION=3;
-const MAX_BYTES=24*1024*1024,MAX_AGE=30*86400000;
+// Shared-folder updates require an editor's explicit opt-in to Drive write scope.
+export const CACHE_SCOPE='https://www.googleapis.com/auth/drive';
+export const CACHE_FILE='_market-view-dashboard-cache.json';
+export const RECHECK_MS=4*3600000;
+export const CACHE_VERSION=5;
+const MAX_BYTES=24*1024*1024;
 const pick=(value,keys)=>Object.fromEntries(keys.filter(k=>value?.[k]!==undefined).map(k=>[k,value[k]]));
 const fields={holdings:['groww_slug','name','qty','invested','avg_price','ltp','current_value'],credits:['isin','ex_date','shares','amount'],open_lots:['stock_name','isin','quantity','buy_value','buy_date'],stocks:['name','weight','segment','groww_slug','isin']};
 function cleanSnapshot(s){
@@ -12,14 +15,15 @@ function cleanSnapshot(s){
  return out;
 }
 export function makeDriveCache(store,views,now=Date.now()){
- const clean={root:pick(store.root,['id','name','mimeType']),loadedAt:store.loadedAt,warnings:store.warnings.filter(w=>typeof w==='string')};
+ const clean={root:pick(store.root,['id','name','mimeType']),loadedAt:store.loadedAt,sourceSignature:store.sourceSignature,warnings:store.warnings.filter(w=>typeof w==='string')};
  for(const name of ['snapshots','dividends','reports','smallcases'])clean[name]=(store[name]||[]).map(cleanSnapshot);
  // Views originate only from buildPortfolio, never auth/session objects.
- return {version:CACHE_VERSION,rootId:store.root.id,savedAt:new Date(now).toISOString(),store:clean,views:[...views]};
+ return {version:CACHE_VERSION,rootId:store.root.id,savedAt:new Date(now).toISOString(),store:clean,views:[...views].filter(([selection])=>selection==='null')};
 }
 export function readDriveCache(doc,rootId,now=Date.now()){
  try{
-  if(doc?.version!==CACHE_VERSION||doc.rootId!==rootId||doc.store?.root?.id!==rootId||typeof doc.store.root.name!=='string'||!Number.isFinite(Date.parse(doc.savedAt))||Date.parse(doc.savedAt)>now+300000||now-Date.parse(doc.savedAt)>MAX_AGE||!Number.isFinite(Date.parse(doc.store.loadedAt))||Date.parse(doc.store.loadedAt)>Date.parse(doc.savedAt)+300000)return null;
+  if(doc?.version!==CACHE_VERSION||doc.rootId!==rootId||doc.store?.root?.id!==rootId||typeof doc.store.root.name!=='string'||!Number.isFinite(Date.parse(doc.savedAt))||Date.parse(doc.savedAt)>now+300000||!Number.isFinite(Date.parse(doc.store.loadedAt))||Date.parse(doc.store.loadedAt)>Date.parse(doc.savedAt)+300000)return null;
+  if(typeof doc.store.sourceSignature!=='string'||!/^sha256:[0-9a-f]{64}$/.test(doc.store.sourceSignature))return null;
   if(!Array.isArray(doc.store.warnings)||doc.store.warnings.some(w=>typeof w!=='string'))return null;
   for(const [name,dataset] of [['snapshots','groww.live_holdings'],['dividends','groww.dividend_report'],['reports','groww.pnl_report'],['smallcases','smallcase.constituents']]){
    if(!Array.isArray(doc.store[name]))return null;
@@ -47,7 +51,7 @@ export function cacheAge(savedAt,now=Date.now()){
  return minutes<1?'just now':minutes<60?minutes+' min ago':minutes<1440?Math.floor(minutes/60)+' hr ago':Math.floor(minutes/1440)+' day'+(minutes>=2880?'s':'')+' ago';
 }
 export class DriveDashboardCache{
- constructor(token,{fetcher=globalThis.fetch.bind(globalThis),signal}={}){this.token=token;this.fetcher=fetcher;this.signal=signal;this.files=new Map();}
+ constructor(token,{fetcher=globalThis.fetch.bind(globalThis),signal,writeEnabled=false}={}){this.token=token;this.fetcher=fetcher;this.signal=signal;this.writeEnabled=writeEnabled;this.files=new Map();}
  async request(url,options={}){
   this.signal?.throwIfAborted();
   const response=await this.fetcher(url,{...options,method:options.method||'GET',headers:{...options.headers,Authorization:'Bearer '+this.token},signal:this.signal,credentials:'omit',cache:'no-store',referrerPolicy:'no-referrer'});
@@ -56,25 +60,39 @@ export class DriveDashboardCache{
   const body=await response.text();if(body.length>MAX_BYTES)throw new Error('Drive cache is too large.');
   return body?JSON.parse(body):null;
  }
- async name(rootId){const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(rootId));return 'market-view-v'+CACHE_VERSION+'-'+Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('')+'.json';}
  async find(rootId){
-  const name=await this.name(rootId);const url=new URL('https://www.googleapis.com/drive/v3/files');
-  url.search=new URLSearchParams({spaces:'appDataFolder',q:"trashed = false and name = '"+name+"'",fields:'nextPageToken,files(id,name,modifiedTime,size)',pageSize:'100',orderBy:'modifiedTime desc'});
-  const data=await this.request(url);const file=data.files?.find(f=>f.name===name);
-  // Updates are restricted to IDs returned from this app's private appDataFolder listing.
-  if(file)this.files.set(rootId,file);else this.files.delete(rootId);
-  return file;
+  if(typeof rootId!=='string'||!/^[A-Za-z0-9_-]+$/.test(rootId))throw new Error('Invalid cache source folder.');
+  const files=[];let pageToken;
+  do{
+   const url=new URL('https://www.googleapis.com/drive/v3/files');
+   url.search=new URLSearchParams({spaces:'drive',q:"trashed = false and '"+rootId+"' in parents and name = '"+CACHE_FILE+"'",fields:'nextPageToken,files(id,name,mimeType,parents,modifiedTime,size,capabilities(canEdit))',pageSize:'100',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(pageToken?{pageToken}:{})});
+   const data=await this.request(url);files.push(...(data.files||[]));pageToken=data.nextPageToken;
+  }while(pageToken);
+  // Stable canonical choice if two initial writers happened to create duplicates.
+  const file=files.filter(f=>f.name===CACHE_FILE&&f.mimeType==='application/json'&&f.parents?.includes(rootId)).sort((a,b)=>a.id.localeCompare(b.id))[0];
+  if(file)this.files.set(rootId,file);else this.files.delete(rootId);return file;
  }
  async load(rootId){
   const file=await this.find(rootId);if(!file||Number(file.size)>MAX_BYTES)return null;
-  const doc=await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media');
+  const doc=await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true');
   return readDriveCache(doc,rootId);
  }
  async save(rootId,payload){
+  if(!this.writeEnabled)throw Object.assign(new Error('Shared cache updates are not enabled for this login.'),{cacheReadOnly:true});
   if(!readDriveCache(payload,rootId))throw new Error('Invalid dashboard cache.');
   const body=JSON.stringify(payload);if(new TextEncoder().encode(body).length>MAX_BYTES)throw new Error('Dashboard cache exceeds size limit.');
-  let file=this.files.get(rootId)||await this.find(rootId);
-  if(!file){file=await this.request('https://www.googleapis.com/drive/v3/files?fields=id',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:await this.name(rootId),parents:['appDataFolder'],mimeType:'application/json'})});this.files.set(rootId,file);}
-  await this.request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(file.id)+'?uploadType=media&fields=id',{method:'PATCH',headers:{'Content-Type':'application/json'},body});
+  let file=await this.find(rootId);
+  if(file){const existing=readDriveCache(await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true'),rootId);if(existing?.store.sourceSignature===payload.store.sourceSignature)return {unchanged:true};}
+  if(!file){
+   const root=await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(rootId)+'?fields=id,mimeType,trashed,capabilities(canAddChildren)&supportsAllDrives=true');
+   if(root.id!==rootId||root.mimeType!=='application/vnd.google-apps.folder'||root.trashed||root.capabilities?.canAddChildren!==true)throw Object.assign(new Error('A folder editor must create the shared cache.'),{cacheReadOnly:true});
+   const created=await this.request('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CACHE_FILE,parents:[rootId],mimeType:'application/json'})});
+   file=await this.find(rootId);if(!file||!created.id)throw new Error('Could not locate the shared cache after creation.');
+  }
+  if(file.capabilities?.canEdit!==true)throw Object.assign(new Error('Only cache editors can update the shared file.'),{cacheReadOnly:true});
+  await this.request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(file.id)+'?uploadType=media&fields=id&supportsAllDrives=true',{method:'PATCH',headers:{'Content-Type':'application/json'},body});
  }
+}
+export function reuseSharedCache(doc,{signature}={}){
+ return Boolean(doc&&typeof signature==='string'&&doc.store.sourceSignature===signature);
 }

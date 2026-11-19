@@ -60,6 +60,28 @@ export class DriveReader {
     return text;
   }
   async readJSON(file) {return JSON.parse(await this.readText(file));}
+  async snapshotSignature(rootId){
+    // Only source inputs participate. Cache files and confirmation logs cannot
+    // invalidate calculations; metadata scans never download snapshot bodies.
+    const names=['_schema','groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents'];
+    const folders=(await this.children([rootId])).filter(f=>f.mimeType===FOLDER&&names.includes(f.name));
+    const manifest=folders.map(f=>['folder',f.name,f.id]);let trustworthy=true;
+    for(const dataset of names){
+      const ids=folders.filter(f=>f.name===dataset).map(f=>f.id);if(!ids.length)continue;
+      const children=await this.children(ids);
+      if(dataset==='_schema'){
+        for(const f of children.filter(f=>f.name==='catalog.json')){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,f.id,f.name,revision]);}
+      }else{
+        const partitions=children.filter(f=>f.mimeType===FOLDER&&/^[A-Za-z0-9_-]+$/.test(f.name)&&(dataset!=='smallcase.constituents'||isBmPartition(f.name)));
+        const groups=new Map();for(const f of partitions){manifest.push(['partition',dataset,f.name,f.id]);const group=groups.get(f.name)||[];group.push(f.id);groups.set(f.name,group);}
+        for(const [partition,parents] of groups)for(const f of (await this.children(parents)).filter(f=>SNAPSHOT.test(f.name))){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,partition,f.id,f.name,revision]);}
+      }
+    }
+    if(!trustworthy)return null;
+    const canonical=manifest.map(row=>JSON.stringify(row)).sort();
+    const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([rootId,canonical])));
+    return 'sha256:'+Array.from(new Uint8Array(digest),n=>n.toString(16).padStart(2,'0')).join('');
+  }
   async load(rootId,onProgress=()=>{}) {
     const warnings=[];
     onProgress('Opening your Drive folder…',10);

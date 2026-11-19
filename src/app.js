@@ -1,5 +1,5 @@
 import {bmRows} from './bm.js';
-import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge} from './drive-cache.js';
+import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge,reuseSharedCache} from './drive-cache.js';
 import {oauthConfig} from './config.js';
 import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
@@ -51,8 +51,8 @@ $('connect').addEventListener('click',()=>{
       if(attempt!==generation)return;
       $('connect').disabled=false;
       if(response.error||!response.access_token)return status('Google authorization was not completed. Try connecting again.',true);
-      if(!google.accounts.oauth2.hasGrantedAllScopes(response,'https://www.googleapis.com/auth/drive.readonly'))return status('Drive read-only permission is required to read the existing store.',true);
-      activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:'',driveCache:$('drive-cache-opt').checked&&google.accounts.oauth2.hasGrantedAllScopes(response,CACHE_SCOPE)});
+      if(!google.accounts.oauth2.hasGrantedAllScopes(response,READ_SCOPE)&&!google.accounts.oauth2.hasGrantedAllScopes(response,CACHE_SCOPE))return status('Drive read-only permission is required to read the existing store.',true);
+      activateSession({clientId,accessToken:response.access_token,expiresAt:Date.now()+Number(response.expires_in||3600)*1000,rootId:'',sharedCacheWriter:$('drive-cache-opt').checked&&google.accounts.oauth2.hasGrantedAllScopes(response,CACHE_SCOPE)});
       status('Connected. Finding your Market data…');findFolders(true);
     },error_callback:()=>{if(attempt===generation){$('connect').disabled=false;status('The Google popup was closed or blocked. Allow popups and try again.',true);}}
   });
@@ -75,51 +75,60 @@ function displayStore(result,id,views){
  $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();
 }
 function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=(cacheSavedAt?'Dashboard cached '+cacheAge(cacheSavedAt)+' · ':'')+message;}
-async function openFolder(id) {
+async function openFolder(id,force=false) {
  if(busy)return false;
  let succeeded=false;
  if(selectedRoot!==id){refreshSchedule.stop();store=null;cacheSavedAt=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;}
  await action(async attempt=>{
   const cache=portfolioCache,drive=reader,cloud=cloudCache;
-  let cached=await cache?.get('portfolio:'+id),saved=null,cloudWarning='';
+  let cached=await cache?.get('portfolio:'+id),saved=null;
   if(attempt!==generation)return;
+  const publish=async()=>{
+   const views=calculations.get(store)||new Map();
+   if(!views.has('null'))views.set('null',buildPortfolio(store.snapshots,store.dividends,'',store.reports||[],store.smallcases||[]));
+   await cloud.save(id,makeDriveCache(store,views));
+  };
   try{
-   // Validate current source access before revealing any cross-login cached portfolio.
    const root=await drive.get('/files/'+encodeURIComponent(id),{fields:'id,name,mimeType,trashed',supportsAllDrives:'true'});
    if(root.trashed||root.mimeType!=='application/vnd.google-apps.folder')throw Object.assign(new Error('Source folder unavailable.'),{accessDenied:true});
    if(attempt!==generation)return;
-   if(!cached&&cloud){
-    try{saved=await cloud.load(id);}catch(error){if(error.authExpired||error.name==='AbortError')throw error;cloudWarning='Drive cache unavailable; using source files.';}
-    if(attempt!==generation)return;
-    if(saved){cached=saved.store;cacheSavedAt=saved.savedAt;}
-   }
-   if(cached){
-    cacheSavedAt=cacheSavedAt||cached.loadedAt;
-    displayStore(cached,id,saved?.views);cacheStatus('Checking for updates in background…');
-    $('load-progress').hidden=true;status('Showing saved dashboard. Checking Drive in background…');
-   }else{cacheStatus(cloudWarning||'Building your dashboard…');status('Loading saved portfolio files…');}
-   const result=await drive.load(id,(message,value)=>{if(attempt===generation&&!cached)loading(message,value);});
+   try{saved=await cloud.load(id);}catch(error){if(error.authExpired||error.name==='AbortError')throw error;}
    if(attempt!==generation)return;
-   await cache?.set('portfolio:'+id,result);if(attempt!==generation)return;
-   if(!cached||!samePortfolio(cached,result))displayStore(result,id);
-   else {store.loadedAt=result.loadedAt;render();}
-   rememberSession();succeeded=true;refreshSchedule.succeeded(Date.parse(result.loadedAt));
-   cacheSavedAt=result.loadedAt;cacheStatus(cloud?'Up to date · saving Drive cache…':'Up to date · Drive cache off (reconnect to enable).');
-   status('Checked Google Drive. Saved capture prices; no live quotes.');
-   if(cloud){
-    try{
-     // Save the computed all-accounts view and selected view; account switches remain local.
-     const views=calculations.get(store)||new Map();
-     if(!views.has('null'))views.set('null',buildPortfolio(store.snapshots,store.dividends,'',store.reports||[],store.smallcases||[]));
-     await cloud.save(id,makeDriveCache(store,views));
-     if(attempt===generation)cacheStatus('Up to date · saved to Drive.');
-    }catch(error){if(attempt!==generation)return;if(error.authExpired||error.name==='AbortError')throw error;cacheStatus('Up to date · could not save Drive cache; will retry on refresh.');}
+   if(saved&&(!cached||Date.parse(saved.store.loadedAt)>=Date.parse(cached.loadedAt))){cached=saved.store;cacheSavedAt=saved.savedAt;}else if(cached)saved=null;
+   if(cached){displayStore(cached,id,saved?.views);cacheSavedAt=cacheSavedAt||cached.loadedAt;cacheStatus('Checking snapshot metadata in background…');$('load-progress').hidden=true;}
+   else status('Loading saved portfolio files…');
+   let signature=await drive.snapshotSignature(id);if(attempt!==generation)return;
+   if(reuseSharedCache(cached?{store:cached}:null,{signature})){
+    if(cloud.writeEnabled&&!reuseSharedCache(saved,{signature}))await publish();
+    if(attempt!==generation)return;
+    await cache?.set('portfolio:'+id,cached);if(attempt!==generation)return;
+    rememberSession();succeeded=true;refreshSchedule.succeeded();
+    cacheStatus(saved?'Shared cache · snapshot inputs unchanged.':'Saved calculation · snapshot inputs unchanged.');
+    status('Checked snapshot metadata. Reused the existing calculations.');return;
    }
+   if(saved&&!cloud.writeEnabled&&!force){
+    rememberSession();succeeded=true;refreshSchedule.succeeded();
+    cacheStatus('New snapshots available · waiting for an editor to update the shared cache.');
+    status('Showing dated shared cache. Refresh snapshots can calculate a local view now.');return;
+   }
+   const read=()=>drive.load(id,(message,value)=>{if(attempt===generation&&!cached)loading(message,value);});
+   let result=await read();if(attempt!==generation)return;
+   let after=await drive.snapshotSignature(id);if(attempt!==generation)return;
+   // If collection raced this read, retry using cached bodies and do not publish a mixed set.
+   if(signature!==after){signature=after;result=await read();if(attempt!==generation)return;after=await drive.snapshotSignature(id);if(attempt!==generation)return;}
+   result.sourceSignature=signature&&signature===after?signature:null;
+   await cache?.set('portfolio:'+id,result);if(attempt!==generation)return;
+   if(!cached||!samePortfolio(cached,result))displayStore(result,id);else{store.loadedAt=result.loadedAt;store.sourceSignature=result.sourceSignature;render();}
+   rememberSession();succeeded=true;refreshSchedule.succeeded();cacheSavedAt=result.loadedAt;
+   status('Calculated current snapshot set. Saved capture prices; no live quotes.');
+   if(cloud.writeEnabled&&result.sourceSignature){
+    try{await publish();if(attempt===generation)cacheStatus('Shared cache saved for this snapshot set.');}
+    catch(error){if(attempt!==generation)return;if(error.authExpired||error.name==='AbortError')throw error;cacheStatus(error.cacheReadOnly?'Calculated · a folder editor must publish the shared cache.':'Calculated · shared cache save failed; retry on refresh.');}
+   }else cacheStatus(!result.sourceSignature?'Sources changed or revision metadata missing · not published.':'Calculated locally · an editor can publish this snapshot set for everyone.');
   }catch(error){
-   if(attempt!==generation)throw error;
-   if(error.authExpired)throw error;
+   if(attempt!==generation)throw error;if(error.authExpired)throw error;
    if(error.accessDenied){store=null;$('dashboard').hidden=true;document.documentElement.classList.remove('app-loaded');await cache?.clear();portfolioCache=null;cacheSavedAt=null;}
-   else if(cached&&store){cacheStatus('Update failed · showing saved data. Retry with Refresh snapshots.');status('Showing saved dashboard; Drive update failed.',true);return;}
+   else if(cached&&store){cacheStatus('Update failed · showing dated cached data. Retry with Refresh snapshots.');status('Showing saved dashboard; Drive check failed.',true);return;}
    throw error;
   }
  });return succeeded;
@@ -137,7 +146,7 @@ async function findFolders(openUnique=false){
 }
 $('find-folders').addEventListener('click',()=>findFolders());
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
-$('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot);});
+$('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot,true);});
 $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
 $('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
 $('search').addEventListener('input',renderPositions);
@@ -288,12 +297,12 @@ document.addEventListener('click',event=>{if(!event.target.closest('.account-pic
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('account-panel').hidden){closeAccounts();$('account-button').focus();}});
 
 function rememberSession(){
- sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope,driveCache:Boolean(cloudCache)});
+ sessionRemembered=saveSession({clientId:$('client-id').value.trim(),accessToken:token,expiresAt:expiry,rootId:selectedRoot||'',cacheScope:portfolioCache?.scope,sharedCacheWriter:cloudCache?.writeEnabled===true});
 }
 function activateSession(session){
  token=session.accessToken;expiry=session.expiresAt;selectedRoot=session.rootId||null;
  portfolioCache=new PortfolioCache(session.cacheScope||crypto.randomUUID(),expiry);
- controller=new AbortController();cloudCache=session.driveCache===true?new DriveDashboardCache(token,{signal:controller.signal}):null;reader=new DriveReader(token,{signal:controller.signal,cache:portfolioCache});rememberSession();
+ controller=new AbortController();cloudCache=new DriveDashboardCache(token,{signal:controller.signal,writeEnabled:session.sharedCacheWriter===true});reader=new DriveReader(token,{signal:controller.signal,cache:portfolioCache});rememberSession();
  clearTimeout(expireTimer);expireTimer=setTimeout(()=>disconnect('Google access expired. Connect again to continue.'),Math.max(0,expiry-Date.now()-10000));
  $('connect-panel').hidden=true;$('disconnect').hidden=false;$('folder-panel').hidden=false;
 }

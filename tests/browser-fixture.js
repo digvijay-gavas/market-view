@@ -1,6 +1,6 @@
 // Browser-only synthetic fixture, served exclusively by scripts/fixture-server.mjs.
 // No production data or Google requests. Deliberately not a node test file.
-window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken:()=>options.callback({access_token:'synthetic-ui-token',expires_in:3600})}),hasGrantedAllScopes:(response,scope)=>!scope?.endsWith('drive.appdata')||!window.location?.search?.includes('nocache=1')}}};
+window.google={accounts:{oauth2:{initTokenClient:options=>({requestAccessToken:()=>options.callback({access_token:'synthetic-ui-token',expires_in:3600})}),hasGrantedAllScopes:(response,scope)=>!scope?.endsWith('/drive')||!window.location?.search?.includes('nocache=1')}}};
 const folder=(id,name)=>({id,name,mimeType:'application/vnd.google-apps.folder'});
 const file=(id,name)=>({id,name,mimeType:'application/json',version:'1'});
 const hash='sha256:'+'a'.repeat(64);
@@ -48,7 +48,7 @@ if(window.location?.search?.includes('history=1')&&docs['bm-capture']){
  docs['bm-capture'].tables.stocks=[{name:'SYNTHETIC Alpha',weight:70},{name:'SYNTHETIC New Member',weight:30}];
 }
 let appCacheFile=null,appCacheData=null;
-if(typeof localStorage!=='undefined'){try{appCacheData=JSON.parse(localStorage.getItem('marketView.syntheticDriveCache'));if(appCacheData)appCacheFile={id:'synthetic-cache',size:'1000',name:localStorage.getItem('marketView.syntheticCacheName')};}catch{}}
+if(typeof localStorage!=='undefined'){try{appCacheData=JSON.parse(localStorage.getItem('marketView.syntheticDriveCache'));if(appCacheData)appCacheFile={id:'synthetic-cache',size:'1000',name:localStorage.getItem('marketView.syntheticCacheName'),mimeType:'application/json',parents:['synthetic-root'],capabilities:{canEdit:true}};}catch{}}
 let mediaDownloads=0;
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
@@ -62,10 +62,10 @@ window.fetch=async function(input,options){
  }
  if(url.pathname==='/drive/v3/files/synthetic-cache')return Response.json(appCacheData);
  if(url.pathname==='/drive/v3/files'&&options.method==='POST'){
-  const metadata=JSON.parse(options.body);if(metadata.parents?.[0]!=='appDataFolder')throw new Error('Unexpected fixture write');
-  appCacheFile={id:'synthetic-cache',name:metadata.name,size:'1000'};if(typeof localStorage!=='undefined')localStorage.setItem('marketView.syntheticCacheName',metadata.name);return Response.json({id:'synthetic-cache'});
+  const metadata=JSON.parse(options.body);if(metadata.parents?.[0]!=='synthetic-root')throw new Error('Unexpected fixture write');
+  appCacheFile={id:'synthetic-cache',name:metadata.name,size:'1000',mimeType:'application/json',parents:['synthetic-root'],capabilities:{canEdit:true}};if(typeof localStorage!=='undefined')localStorage.setItem('marketView.syntheticCacheName',metadata.name);return Response.json({id:'synthetic-cache'});
  }
- if(url.searchParams.get('spaces')==='appDataFolder')return Response.json({files:appCacheFile&&url.searchParams.get('q').includes(appCacheFile.name)?[appCacheFile]:[]});
+ if(url.searchParams.get('spaces')==='drive'&&url.searchParams.get('q')?.includes('_market-view-dashboard-cache.json'))return Response.json({files:appCacheFile&&url.searchParams.get('q').includes(appCacheFile.name)?[appCacheFile]:[]});
  if(window.location?.search?.includes('updatefail=1')&&url.pathname==='/drive/v3/files')throw new TypeError('Synthetic update failed');
  if(url.pathname==='/drive/v3/files') {
   if(url.searchParams.get('q').includes("name = 'market-data'"))return Response.json({files:window.location?.search?.includes('folders=multiple')?[folder('synthetic-root','market-data'),folder('synthetic-second','market-data')]:[folder('synthetic-root','market-data')]});
@@ -73,7 +73,7 @@ window.fetch=async function(input,options){
   return Response.json({files:ids.flatMap(id=>children[id]||[])});
  }
  const id=decodeURIComponent(url.pathname.split('/').at(-1));
- if(id==='synthetic-root')return Response.json(folder(id,'SYNTHETIC portfolio'));
+ if(id==='synthetic-root')return Response.json({...folder(id,'SYNTHETIC portfolio'),capabilities:{canAddChildren:!window.location?.search?.includes('viewer=1')}});
  if(docs[id]){mediaDownloads++;if(typeof document!=='undefined')document.querySelector('[role=note]').textContent='SYNTHETIC TEST FIXTURE — invented data, fake authorization, no Google requests. File downloads: '+mediaDownloads;return Response.json(docs[id]);}
  return new Response('',{status:404});
 };
