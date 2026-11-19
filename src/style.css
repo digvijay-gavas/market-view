@@ -105,3 +105,9 @@
 @media(max-width:1050px){.account-panel{left:0;right:auto;width:min(300px,calc(100vw - 48px));min-width:0}}
 
 .policy-page main{max-width:900px;padding-bottom:48px}.policy-heading{padding:45px 0 20px}.policy-page h1{font-size:42px;letter-spacing:-1px}.policy-page section{padding:22px 0;border-top:1px solid var(--line)}.policy-page h2{font-size:21px}.policy-page p{line-height:1.75;color:#c7cfcc}.policy-links{display:flex;flex-wrap:wrap;gap:20px;padding:24px 0;border-top:1px solid var(--line)}
+
+/* One plain progress bar with its status text below. No timers or decorative animation. */
+.load-progress{max-width:480px;margin:24px 0 10px}.load-progress label{display:block;margin-bottom:10px;font-size:14px}.load-progress progress{display:block;width:100%;height:8px;accent-color:var(--accent);border:0;border-radius:4px;overflow:hidden;background:var(--line)}
+.load-progress progress::-webkit-progress-bar{background:var(--line)}.load-progress progress::-webkit-progress-value{background:var(--accent)}.load-progress progress::-moz-progress-bar{background:var(--accent)}
+.initial-loading #intro,.initial-loading #folder-panel{display:none}.app-loaded .load-progress{margin:4px 0;max-width:100%;flex:none}.app-loaded .load-progress label{display:none}
+#bm-note{flex:none;margin:8px 0 0;font-size:10px;line-height:1.4;max-height:70px;overflow:auto}

@@ -36,10 +36,17 @@ if(window.location?.search?.includes('xirr=1')){
   docs[id]={...snap(partition,[]),dataset:'groww.pnl_report',tables:{open_lots:docs['snapshot-'+(index===0?'one':'two')].tables.holdings.map((r,i)=>({stock_name:r.name,isin:'SYNTHETIC'+i,quantity:r.qty,buy_value:r.invested,buy_date:'2025-01-01'}))}};
  }
 }
+if(window.location?.search?.includes('bm=1')){
+ children['synthetic-root'].push(folder('bm','smallcase.constituents'));
+ children.bm=[folder('bm-partition','BAMIMO_0002')];children['bm-partition']=[file('bm-capture','20260101T100000Z__aaaaaaaaaaaa.json')];
+ docs.catalog.datasets['smallcase.constituents']={version:1,semantics:'latest'};
+ docs['bm-capture']={...snap('BAMIMO_0002',[]),dataset:'smallcase.constituents',meta:{id:'BAMIMO_0002',name:'Synthetic BM'},tables:{stocks:[{name:'SYNTHETIC Alpha',weight:40},{name:'SYNTHETIC Beta',weight:60}]}};
+}
 let mediaDownloads=0;
 window.fetch=async function(input,options){
  if(this!==window)throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
  const url=new URL(input);
+ if(window.location?.search?.includes('slow=1'))await new Promise(resolve=>setTimeout(resolve,600));
  if(window.location?.search?.includes('offline=1'))throw new TypeError('Synthetic offline');
  if(window.location?.search?.includes('denied=1'))return new Response('',{status:403});
  if(url.origin!=='https://www.googleapis.com'||options.headers.Authorization!=='Bearer synthetic-ui-token')throw new Error('Unexpected test request');

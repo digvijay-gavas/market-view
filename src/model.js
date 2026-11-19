@@ -1,4 +1,5 @@
 import {openHoldingsXirr} from './xirr.js';
+import {attachBm} from './bm.js';
 // Market store v1 reader. All fixtures in tests are synthetic.
 export const SNAPSHOT = /^\d{8}T\d{6}Z__[0-9a-f]{12}\.json$/;
 export const numeric = x => typeof x === 'number' && Number.isFinite(x);
@@ -8,6 +9,11 @@ export const percentage = (part, base) => numeric(part) && numeric(base) && base
 
 export function validateSnapshot(doc, dataset, partition) {
   if (!doc || doc.store_version !== 1 || doc.schema_version !== 1 || doc.dataset !== dataset || doc.partition !== partition || !Number.isFinite(Date.parse(doc.captured_at)) || !/(Z|[+-]\d{2}:\d{2})$/.test(doc.captured_at) || !/^sha256:[0-9a-f]{64}$/.test(doc.content_hash) || (doc.as_of !== null && (typeof doc.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(doc.as_of))) || !doc.tables || typeof doc.tables !== 'object') throw new Error('Invalid or unsupported snapshot envelope');
+  if(dataset==='smallcase.constituents'){
+    if(!doc.meta||doc.meta.id!==partition||!Array.isArray(doc.tables.stocks))throw new Error('Invalid smallcase constituents');
+    for(const row of doc.tables.stocks)if(!row||typeof row.name!=='string'||!row.name.trim()||!('weight' in row)||(row.weight!==null&&(!numeric(row.weight)||row.weight<0||row.weight>100)))throw new Error('Invalid smallcase target');
+    return doc;
+  }
   if(dataset==='groww.pnl_report'){
     if(!Array.isArray(doc.tables.open_lots))throw new Error('Missing open lots');
     for(const row of doc.tables.open_lots){if(!row||typeof row.isin!=='string'||!row.isin||typeof row.stock_name!=='string')throw new Error('Invalid purchase lot');for(const key of ['quantity','buy_value'])if(row[key]!=null&&(!numeric(row[key])||row[key]<0))throw new Error('Invalid purchase amount');}
@@ -41,7 +47,7 @@ export async function newestValid(files, read, dataset, partition, onSkip = () =
   return null;
 }
 
-export function buildPortfolio(snapshots, dividendSnapshots = [], account = '', reports = []) {
+export function buildPortfolio(snapshots, dividendSnapshots = [], account = '', reports = [], smallcases = []) {
   const selected = snapshots.filter(s => Array.isArray(account)?account.includes(s.partition):!account||s.partition===account);
   const grouped = new Map();
   const accounts = selected.map(s => {
@@ -79,7 +85,8 @@ export function buildPortfolio(snapshots, dividendSnapshots = [], account = '', 
   }
   const weights=positions.map(p=>percentage(p.value,value));
   const annualised=openHoldingsXirr(selected,reports);
-  return {xirr:numeric(annualised.rate)?annualised.rate*100:null,xirrReason:annualised.reason,cashEquivalent,goldValue,goldWeight:percentage(goldValue,value),otherHoldingsValue,cashWeight:percentage(cashEquivalent,value),accounts,positions:positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
+  const bm=attachBm(positions.map((p,i)=>({...p,weight:weights[i],returnPct:percentage(p.pnl,p.cost)})),smallcases);
+  return {bm:bm.bm,xirr:numeric(annualised.rate)?annualised.rate*100:null,xirrReason:annualised.reason,cashEquivalent,goldValue,goldWeight:percentage(goldValue,value),otherHoldingsValue,cashWeight:percentage(cashEquivalent,value),accounts,positions:bm.positions,value,cost,pnl,returnPct:percentage(pnl,cost),dividends:dividendSnapshots.some(s=>selectedAccounts.has(s.partition))?sum([...credits.values()].map(r=>r.amount)):null,dividendAccounts:[...new Set(dividendSnapshots.filter(s=>selectedAccounts.has(s.partition)).map(s=>s.partition))],top5:positions.length&&numeric(value)?percentage(sum(positions.slice(0,5).map(p=>p.value??0)),value):null,incomplete:positions.filter(p=>!numeric(p.value)||!numeric(p.cost)).length};
 }
 
 export function confirmationAt(snapshot, logs) {

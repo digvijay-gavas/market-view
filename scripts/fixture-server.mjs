@@ -10,6 +10,8 @@ createServer(async(req,res)=>{
     let body,type='text/html; charset=utf-8';
     if(pathname==='/') {
       body=(await readFile(root+'/index.html','utf8')).replace('<script src="https://accounts.google.com/gsi/client" async defer></script>','<script src="./tests/browser-fixture.js"></script>').replace('<body>','<body><p role="note">SYNTHETIC TEST FIXTURE — invented data, fake authorization, no Google requests.</p>');
+    } else if(pathname==='/src/config.js'){
+      body='export const oauthConfig=null;';type='text/javascript';
     } else {
       const path=resolve(root,'.'+pathname);
       if(!path.startsWith(root+sep)||(!pathname.startsWith('/src/')&&pathname!=='/tests/browser-fixture.js'))throw new Error('Not served');

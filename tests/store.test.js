@@ -38,3 +38,15 @@ test('Drive traversal reads P&L purchase lots and exposes a reconciled annualise
  const p=buildPortfolio(store.snapshots,store.dividends,'',store.reports);assert.ok(Math.abs(p.xirr-4)<1e-8);
  assert.ok(Math.abs(buildPortfolio(store.snapshots,store.dividends,'example_two',store.reports).xirr-20)<1e-8);
 });
+
+test('Drive loads uppercase BM partition, reports monotonic progress, and falls back from malformed newest',async()=>{
+ const context={window:{location:{search:'?bm=1'}},URL,Response};vm.runInNewContext(await readFile(new URL('./browser-fixture.js',import.meta.url),'utf8'),context);
+ vm.runInNewContext("children['bm-partition'].push(file('bm-bad','20260102T100000Z__aaaaaaaaaaaa.json'));docs['bm-bad']={}",context);
+ const progress=[];const reader=new DriveReader('synthetic-ui-token',{fetcher:(...args)=>context.window.fetch(...args)});
+ const store=await reader.load('synthetic-root',(message,value)=>progress.push(value));
+ assert.equal(store.smallcases.length,1);assert.equal(store.smallcases[0].partition,'BAMIMO_0002');
+ const p=buildPortfolio(store.snapshots,[], '',[],store.smallcases);assert.equal(p.positions[0].bmTarget,40);
+ assert.ok(Math.abs(p.positions[0].bmWeight-1800/2600*100)<1e-10);
+ assert.ok(progress.every((v,i)=>Number.isFinite(v)&&v>=0&&v<=100&&(!i||v>=progress[i-1])));
+ assert.ok(store.warnings.some(w=>w.includes('Skipped')));
+});

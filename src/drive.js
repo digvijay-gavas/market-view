@@ -61,10 +61,10 @@ export class DriveReader {
   async readJSON(file) {return JSON.parse(await this.readText(file));}
   async load(rootId,onProgress=()=>{}) {
     const warnings=[];
-    onProgress('Reading Drive folder metadata…');
+    onProgress('Opening your Drive folder…',10);
     const root=await this.get('/files/'+encodeURIComponent(rootId),{fields:'id,name,mimeType,trashed',supportsAllDrives:'true'});
     if(root.mimeType!==FOLDER||root.trashed)throw new Error('Choose a Drive folder, not a file.');
-    onProgress('Listing store folders…');
+    onProgress('Finding saved portfolio data…',20);
     const rootChildren=await this.children([rootId]);
     const datasets=new Map();
     for(const f of rootChildren.filter(f=>f.mimeType===FOLDER)) {const ids=datasets.get(f.name)||[];ids.push(f.id);datasets.set(f.name,ids);}
@@ -73,21 +73,29 @@ export class DriveReader {
     const schemaFiles=await this.children(datasets.get('_schema'));
     const catalogs=schemaFiles.filter(f=>f.name==='catalog.json').sort((a,b)=>a.id.localeCompare(b.id));
     if(!catalogs.length)throw new Error('The store catalog is missing.');
-    onProgress('Reading store catalog…');
+    onProgress('Checking data format…',30);
     const catalog=await this.readJSON(catalogs[0]);
     if(catalog.store_version!==1||catalog.datasets?.['groww.live_holdings']?.version!==1||catalog.datasets['groww.live_holdings'].semantics!=='latest')throw new Error('This store version is not supported. Expected Market v1 holdings snapshots.');
-    const snapshots=[],dividends=[],logs=[],reports=[];let reportAccounts=[];
+    const snapshots=[],dividends=[],logs=[],reports=[],smallcases=[];let reportAccounts=[];
     const skip=()=>warnings.push('Skipped an invalid, unsupported or incomplete snapshot; a valid older capture may be shown.');
-    for(const dataset of ['groww.live_holdings','groww.dividend_report','groww.pnl_report']) {
+    for(const dataset of ['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents']) {
       if(!datasets.has(dataset))continue;
+      if(dataset==='smallcase.constituents'&&(catalog.datasets?.[dataset]?.version!==1||catalog.datasets[dataset].semantics!=='latest')){warnings.push('BM constituent schema unsupported; BM targets unavailable.');continue;}
       const partitions=await this.children(datasets.get(dataset));
       const groups=new Map();
-      for(const p of partitions.filter(p=>p.mimeType===FOLDER)) {if(!/^[a-z0-9_-]+$/.test(p.name))continue;const ids=groups.get(p.name)||[];ids.push(p.id);groups.set(p.name,ids);}
+      for(const p of partitions.filter(p=>p.mimeType===FOLDER)) {if(!/^[A-Za-z0-9_-]+$/.test(p.name))continue;const ids=groups.get(p.name)||[];ids.push(p.id);groups.set(p.name,ids);}
       if(dataset==='groww.pnl_report')reportAccounts=[...groups.keys()];
+      let completed=0;
+      const index=['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents'].indexOf(dataset);
       for(const [partition,ids] of groups) {
-        onProgress(`Reading ${dataset==='groww.live_holdings'?'holdings':'dividends'} · ${partition}…`);
+        if(dataset==='smallcase.constituents'&&partition!=='BAMIMO_0002')continue;
+        const label={'groww.live_holdings':'holdings','groww.dividend_report':'dividends','groww.pnl_report':'purchase lots','smallcase.constituents':'BM targets'}[dataset];
+        onProgress(`Loading ${label}…`,35+index*13+(completed++/groups.size)*13);
         const files=(await this.children(ids)).filter(f=>SNAPSHOT.test(f.name));
-        if(dataset==='groww.live_holdings') {
+        if(dataset==='smallcase.constituents'){
+          const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
+          if(doc)smallcases.push(doc);else warnings.push('No readable BM constituents capture; BM targets unavailable.');
+        } else if(dataset==='groww.live_holdings') {
           const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
           if(doc)snapshots.push(doc);else warnings.push(`No readable holdings capture for ${partition}; account excluded from totals.`);
         } else if(dataset==='groww.pnl_report'){
@@ -103,6 +111,7 @@ export class DriveReader {
         }
       }
     }
+    onProgress('Checking capture dates…',90);
     if(datasets.has('_log')) {
       for(const f of (await this.children(datasets.get('_log'))).filter(f=>f.name.endsWith('.jsonl'))) {
         const text=await this.readText(f);
@@ -119,6 +128,7 @@ export class DriveReader {
     const missing=reportAccounts.filter(a=>!snapshots.some(s=>s.partition===a));
     if(missing.length)warnings.push(`Report-only accounts excluded (no holdings capture): ${missing.join(', ')}. This reader does not reconstruct lots from P&L workbooks.`);
     if(!snapshots.length)throw new Error('No readable holdings snapshots in this store. Publish groww.live_holdings captures from Market first.');
-    return {root,snapshots,dividends,reports,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
+    onProgress('Preparing your dashboard…',98);
+    return {root,snapshots,dividends,reports,smallcases,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
   }
 }

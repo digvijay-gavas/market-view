@@ -16,8 +16,10 @@ const stamp=x=>x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyl
 const text=(tag,value,cls)=>{const e=document.createElement(tag);e.textContent=value;if(cls)e.className=cls;return e;};
 let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,selectedRoot=null,generation=0,busy=false;
 let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
+const loading=(message,value=0)=>{$('load-progress').hidden=false;$('loading-bar').value=value;status(message);};
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
 function clearData() {
+  $('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');
   generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
@@ -25,6 +27,7 @@ function clearData() {
   $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
   $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
+  $('bm-note').textContent='';
   $('holdings-title').textContent='Holdings';$('table-note').textContent='';
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;
 }
@@ -55,9 +58,10 @@ async function action(work) {
   if(busy)return;
   if(!reader||Date.now()>=expiry){disconnect('Connect to Google Drive to continue.');return;}
   const attempt=generation;busy=true;
+  document.documentElement.classList.toggle('initial-loading',!store);loading('Finding your saved portfolio…',5);
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=true;
   try {await work(attempt);}catch(e){if(attempt!==generation||e.name==='AbortError')return;if(e.authExpired)disconnect(e.message);else {if(!store)$('folder-panel').hidden=false;status(e.message||'Could not load Drive data.',true);}}
-  finally{if(attempt===generation){busy=false;for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;}}
+  finally{if(attempt===generation){busy=false;$('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;}}
 }
 function displayStore(result,id){
  store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
@@ -79,7 +83,7 @@ async function openFolder(id) {
   if(cached){displayStore(cached,id);refreshSchedule.succeeded(Date.parse(cached.loadedAt));status('Showing cached portfolio. Checking Google Drive for changes…');}
   else status('Opening the Drive store…');
   try{
-   const result=await reader.load(id,message=>{if(attempt===generation&&!cached)status(message);});
+   const result=await reader.load(id,(message,value)=>{if(attempt===generation)loading(message,value);});
    if(attempt!==generation)return;
    await cache?.set('portfolio:'+id,result);
    if(attempt!==generation)return;
@@ -122,7 +126,7 @@ function bar(container,name,value,share,colour='') {
   const track=text('div','','bar-track'),fill=text('div','',`bar-fill ${colour}`);fill.style.width=`${Math.max(0,Math.min(100,share||0))}%`;track.append(fill);row.append(label,track);container.append(row);
 }
 const calculations=new WeakMap();
-function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(store.snapshots,store.dividends,selectedAccounts??'',store.reports||[]));return accounts.get(key);}
+function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(store.snapshots,store.dividends,selectedAccounts??'',store.reports||[],store.smallcases||[]));return accounts.get(key);}
 function selectedSnapshots(){return store.snapshots.filter(s=>selectedAccounts===null||selectedAccounts.includes(s.partition));}
 function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
@@ -162,8 +166,9 @@ function render() {
 function renderPositions(){
   if(!store)return;const p=current(),query=$('search').value.trim().toLowerCase();$('positions').replaceChildren();
   const rows=p.positions.filter(r=>`${r.name} ${r.key}`.toLowerCase().includes(query));
-  for(const r of rows){const tr=document.createElement('tr');const name=text('td','');name.append(text('strong',r.name),text('small',r.accounts.join(' · '),'fine'));tr.append(name);for(const [i,v]of [number(r.quantity),money(r.cost),money(r.value),money(r.pnl),pct(r.returnPct),numeric(r.weight)?r.weight.toFixed(1)+'%':'—'].entries())tr.append(text('td',v,i===3||i===4?(r.pnl<0?'loss':'gain'):''));$('positions').append(tr);}
-  if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':selectedAccounts?.length===0?'Choose one or more accounts.':'The selected accounts were captured with no holdings.');td.colSpan=7;tr.append(td);$('positions').append(tr);}
+  for(const r of rows){const tr=document.createElement('tr');const name=text('td','');name.append(text('strong',r.name),text('small',r.accounts.join(' · '),'fine'));tr.append(name);for(const [i,v]of [number(r.quantity),money(r.cost),money(r.value),money(r.pnl),pct(r.returnPct),numeric(r.weight)?r.weight.toFixed(1)+'%':'—',numeric(r.bmTarget)?r.bmTarget.toFixed(1)+'%':'—',numeric(r.bmWeight)?r.bmWeight.toFixed(1)+'%':'—',numeric(r.bmDrift)?`${r.bmDrift>=0?'+':''}${r.bmDrift.toFixed(1)} pp`:'—'].entries())tr.append(text('td',v,i===3||i===4?(r.pnl<0?'loss':'gain'):''));$('positions').append(tr);}
+  if(!rows.length){const tr=document.createElement('tr'),td=text('td',p.positions.length?'No matching holdings.':selectedAccounts?.length===0?'Choose one or more accounts.':'The selected accounts were captured with no holdings.');td.colSpan=10;tr.append(td);$('positions').append(tr);}
+  $('bm-note').textContent=p.bm.available?`${p.bm.name} · Saved ${stamp(p.bm.capturedAt)}${p.bm.asOf?' · Rebalance '+p.bm.asOf:''}. BM target/current are percentages within BM holdings; targets renormalised over matched members held. Difference = current − target (percentage points).${p.bm.missing.length?' Not held or unresolved: '+p.bm.missing.join(', ')+'.':''}${p.bm.ambiguous.length?' Ambiguous names excluded: '+p.bm.ambiguous.join(', ')+'.':''}`:p.bm.reason;
   $('holdings-title').textContent=`Holdings · ${p.positions.length}`;$('table-note').textContent=`Showing ${rows.length} of ${p.positions.length}. Grouped by the source’s exact Groww slug; no guessed symbol matching. A dash or “Unavailable” means the inputs are missing.`;
 }
 
