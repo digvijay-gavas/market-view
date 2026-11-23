@@ -11,7 +11,7 @@ import {AdminService,safeCode} from './admin-service.mjs';
 
 const MAX_BODY=32768;
 const equal=(a,b)=>typeof a==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-const assets=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.js',['app.js','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']]]);
+const assets=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.js',['app.js','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']],['/feedback.js',['feedback.js','text/javascript; charset=utf-8']]]);
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Cross-Origin-Resource-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
 function bodyJSON(req,limit=MAX_BODY){return new Promise((resolveBody,reject)=>{
  let size=0,chunks=[],failed=false;
@@ -56,7 +56,7 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
     if(Number(req.headers['content-length']||0)>MAX_BODY)return send(413,{error:'REQUEST_TOO_LARGE'});
     const input=await bodyJSON(req),actions={initialize:'initialize',pin:'savePin','add-account':'addAccount',folder:'saveRoot',enroll:'enroll',google:'connectGoogle',confirm:'confirm',cancel:'cancel',start:'startSchedule',pause:'pause',fetch:'fetchNow','open-account-chrome':'openAccountChrome','pair-extension':'pairExtension','revoke-extension':'revokeExtension','capture-extension':'requestExtensionCapture'};
     if(!Object.hasOwn(actions,input.action))return send(400,{error:'UNKNOWN_ACTION'});
-    const result=await service[actions[input.action]](input);return send(200,{ok:true,job:result?.id?result:undefined,pairing:result?.code?result:undefined});
+    const result=await service[actions[input.action]](input);return send(200,{ok:true,job:result?.type?result:undefined,operation:input.action==='capture-extension'?result:undefined,pairing:result?.code?result:undefined});
    }
    return send(404,{error:'NOT_FOUND'});
   }catch(error){return send(error.status||400,{error:safeCode(error)});}

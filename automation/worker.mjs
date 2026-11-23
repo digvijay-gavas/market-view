@@ -8,6 +8,7 @@ import {fetchQuotes,universe} from './prices.mjs';
 import {Publisher,FileBodyCache,accessToken} from './drive.mjs';
 import {positionRows,positionChanges} from '../src/progressive.js';
 import {extensionCapture} from './extension-inbox.mjs';
+import {runSummary} from './run-status.mjs';
 export async function readJSON(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw error;}}
 export async function lock(home){
  const dir=join(home,'run.lock');await mkdir(home,{recursive:true,mode:0o700});
@@ -60,7 +61,8 @@ export async function runCycle({config,state,vault,publisher,home,calendar,now=n
   if(priceResult.fresh)await publisher.publish('market.prices','shared',{quotes:priceResult.quotes},{provider:config.priceProvider},now);
  }catch{checkpoint.quoteState='PRICE_FETCH_FAILED';}
  const cacheResult=await publisher.compileCache();checkpoint.cache=cacheResult.reused?'reused':'rebuilt';
- delete state.lastError;state.lastRunAt=now.toISOString();state.nextRunAt=new Date(+now+Math.max(nextDelay(config.schedule),priceResult?.retryAfterMs||0)).toISOString();
+ for(const account of config.accounts){const ext=vault.data.accounts[account.id]?.extension;if(ext?.capture?.requestId&&ext.operation?.captureRequestId===ext.capture.requestId&&state.positions[account.id]?.capturedAt===ext.capture.capturedAt)Object.assign(ext.operation,{phase:'succeeded',completedAt:new Date().toISOString(),publishState:'published',error:null});}
+ delete state.lastError;state.lastRunSummary=runSummary(checkpoint);state.lastRunAt=now.toISOString();state.nextRunAt=new Date(+now+Math.max(nextDelay(config.schedule),priceResult?.retryAfterMs||0)).toISOString();
  checkpoint.completedAt=new Date().toISOString();checkpoint.nextRunAt=state.nextRunAt;await publisher.status(checkpoint);await vault.save();
  return {ran:true,state,checkpoint};
 }

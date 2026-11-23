@@ -2,3 +2,7 @@
 select{font:inherit;min-width:0;max-width:100%;width:100%;background:#fbfcfa;border:1px solid #d5e0d1;border-radius:7px;padding:10px 8px;color:#204730;font-size:12px}select:focus-visible{outline:3px solid #97b991;outline-offset:3px}select:disabled{opacity:.6}
 
 .extension-help{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:20px 0}.extension-help summary{cursor:pointer;font-weight:650}.extension-help ol{font-size:13px;color:#647468;padding-left:20px}.extension-help input{font-size:12px}.account-card input[readonly]{font-family:Consolas,monospace;font-size:12px;letter-spacing:.04em}
+
+.action-feedback{font-size:11px;line-height:1.5;color:#738173;margin:7px 0 11px;overflow-wrap:anywhere}.action-feedback.succeeded{color:#386f49}.action-feedback.failed{color:#95602e}.action-feedback.waiting{color:#807144}.action-feedback.busy{color:#54705a}button[aria-busy=true]::before{content:'';display:inline-block;vertical-align:-2px;width:11px;height:11px;margin-right:7px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:button-progress .8s linear infinite}button[aria-busy=true]:disabled{opacity:.85}@keyframes button-progress{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){button[aria-busy=true]::before{animation:none;border-style:dotted}}
+
+.account-reconciled{font-size:11px;color:#627660;margin:0 0 14px}.account-meta{min-height:0}

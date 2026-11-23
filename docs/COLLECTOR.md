@@ -90,7 +90,7 @@ capture happens once per market day when the account's Chrome profile is running
 the collector is enabled and the verified NSE calendar permits it. The computer
 must be awake. The extension cannot run in a closed/unloaded Chrome profile and
 does not promise a headless browser. Missed days capture the latest state on the
-next eligible run. **Request holdings capture** queues a manual capture for the
+next eligible run. **Reconcile positions** queues a manual capture for the
 next poll; **Capture holdings now** in the extension can run while paused or
 outside market hours. These actions still respect PIN attempt protection.
 
@@ -113,6 +113,34 @@ extension pairing switches the local collector to the extension holdings lane.
 Machine transfer requires installing and pairing the extension again. Runtime
 tokens, codes, inbox data and PINs are never included in the extension source or
 the public Pages build.
+
+### Reconciliation progress
+
+Every account has a **Reconcile positions** button and an explicit **Positions
+reconciled** timestamp. Unpaired accounts show the button disabled with a pairing
+hint. Paired accounts queue a fresh Groww capture for the extension; the action
+does not require a terminal or opening the extension popup.
+
+The button shows a small spinner with **Waiting for Chrome** or **Reconciling**
+while that request is active. Its status line distinguishes capture received
+locally, waiting for Drive/cache publication, full success, and failure. Success
+is recorded only after the matching capture is published and the shared cache
+finishes. If Google is unconfigured or the worker is busy, the local capture is
+retained and the status says it is awaiting sync. Publication failure keeps that
+capture and offers Fetch now as the retry path.
+
+Queued requests time out after five minutes without a response; active capture
+uses its three-minute request deadline. Missing or closed Chrome therefore does
+not leave an endless spinner. Duplicate requests reuse the active operation.
+Status is kept with the encrypted extension record and survives an admin reload.
+Private request nonces and tokens are excluded from public admin status.
+
+**Fetch now** updates available saved positions, shared prices and the cache. Its
+own button and inline status show working, succeeded, failed, or partly updated
+with pending-account/price counts. Partial runs are not presented as full success.
+The worker also persists a summary so a page/server restart retains the last run's
+partial outcome. PIN, pairing, folder and scheduling actions have local button
+feedback. Animation honors the reduced-motion preference.
 
 ## Admin page (recommended)
 
