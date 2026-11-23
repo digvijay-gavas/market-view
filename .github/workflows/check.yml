@@ -10,5 +10,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm test
+        env:
+          COLLECTOR_BROWSER_TESTS: "1"
+          COLLECTOR_TEST_BROWSER: chromium
       - run: npm run build

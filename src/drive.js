@@ -1,3 +1,4 @@
+import {materializePositions} from './progressive.js';
 import {isBmPartition} from './bm.js';
 import {fileRevision} from './cache.js';
 import {SNAPSHOT, newestValid, validateSnapshot, confirmationAt} from './model.js';
@@ -63,7 +64,7 @@ export class DriveReader {
   async snapshotSignature(rootId){
     // Only source inputs participate. Cache files and confirmation logs cannot
     // invalidate calculations; metadata scans never download snapshot bodies.
-    const names=['_schema','groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents'];
+    const names=['_schema','groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents','portfolio.positions','market.prices'];
     const folders=(await this.children([rootId])).filter(f=>f.mimeType===FOLDER&&names.includes(f.name));
     const manifest=folders.map(f=>['folder',f.name,f.id]);let trustworthy=true;
     for(const dataset of names){
@@ -99,23 +100,27 @@ export class DriveReader {
     onProgress('Checking data format…',30);
     const catalog=await this.readJSON(catalogs[0]);
     if(catalog.store_version!==1||catalog.datasets?.['groww.live_holdings']?.version!==1||catalog.datasets['groww.live_holdings'].semantics!=='latest')throw new Error('This store version is not supported. Expected Market v1 holdings snapshots.');
-    const snapshots=[],dividends=[],logs=[],reports=[],smallcases=[];let reportAccounts=[];
+    const snapshots=[],dividends=[],logs=[],reports=[],smallcases=[],positionSnapshots=[],priceSnapshots=[];let reportAccounts=[];
     const skip=()=>warnings.push('Skipped an invalid, unsupported or incomplete snapshot; a valid older capture may be shown.');
-    for(const dataset of ['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents']) {
+    for(const dataset of ['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents','portfolio.positions','market.prices']) {
       if(!datasets.has(dataset))continue;
+      if(['portfolio.positions','market.prices'].includes(dataset)&&(catalog.datasets?.[dataset]?.version!==1||catalog.datasets[dataset].semantics!=='latest')){warnings.push('Progressive schema unsupported; using legacy captures.');continue;}
       if(dataset==='smallcase.constituents'&&(catalog.datasets?.[dataset]?.version!==1||catalog.datasets[dataset].semantics!=='latest')){warnings.push('BM constituent schema unsupported; BM targets unavailable.');continue;}
       const partitions=await this.children(datasets.get(dataset));
       const groups=new Map();
       for(const p of partitions.filter(p=>p.mimeType===FOLDER)) {if(!/^[A-Za-z0-9_-]+$/.test(p.name))continue;const ids=groups.get(p.name)||[];ids.push(p.id);groups.set(p.name,ids);}
       if(dataset==='groww.pnl_report')reportAccounts=[...groups.keys()];
       let completed=0;
-      const index=['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents'].indexOf(dataset);
+      const index=['groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents','portfolio.positions','market.prices'].indexOf(dataset);
       for(const [partition,ids] of groups) {
         if(dataset==='smallcase.constituents'&&!isBmPartition(partition))continue;
-        const label={'groww.live_holdings':'holdings','groww.dividend_report':'dividends','groww.pnl_report':'purchase lots','smallcase.constituents':'BM targets'}[dataset];
-        onProgress(`Loading ${label}…`,35+index*13+(completed++/groups.size)*13);
+        const label={'groww.live_holdings':'holdings','groww.dividend_report':'dividends','groww.pnl_report':'purchase lots','smallcase.constituents':'BM targets','portfolio.positions':'position reconciliations','market.prices':'shared price observations'}[dataset];
+        onProgress(`Loading ${label}…`,35+index*8+(completed++/groups.size)*8);
         const files=(await this.children(ids)).filter(f=>SNAPSHOT.test(f.name));
-        if(dataset==='smallcase.constituents'){
+        if(['portfolio.positions','market.prices'].includes(dataset)){
+          const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
+          if(doc)(dataset==='portfolio.positions'?positionSnapshots:priceSnapshots).push(doc);
+        }else if(dataset==='smallcase.constituents'){
           const doc=await newestValid(files,f=>this.readJSON(f),dataset,partition,skip);
           if(doc){
             smallcases.push(doc);const seen=new Set([doc.content_hash]);
@@ -148,6 +153,8 @@ export class DriveReader {
         for(const line of text.split('\n')) if(line.trim())try{logs.push(JSON.parse(line));}catch{warnings.push('An incomplete confirmation log entry was ignored.');}
       }
     }
+    const progressive=await materializePositions(snapshots,positionSnapshots,priceSnapshots);
+    snapshots.splice(0,snapshots.length,...progressive.snapshots);warnings.push(...progressive.warnings);
     for(const s of snapshots) {
       s.confirmedAt=confirmationAt(s,logs);
       const age=(Date.now()-Date.parse(s.confirmedAt))/36e5;
@@ -159,6 +166,6 @@ export class DriveReader {
     if(missing.length)warnings.push(`Report-only accounts excluded (no holdings capture): ${missing.join(', ')}. This reader does not reconstruct lots from P&L workbooks.`);
     if(!snapshots.length)throw new Error('No readable holdings snapshots in this store. Publish groww.live_holdings captures from Market first.');
     onProgress('Preparing your dashboard…',98);
-    return {root,snapshots,dividends,reports,smallcases,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
+    return {root,snapshots,dividends,reports,smallcases,progressiveSources:progressive.sources,warnings:[...new Set(warnings)],loadedAt:new Date().toISOString()};
   }
 }

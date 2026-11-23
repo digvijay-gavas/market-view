@@ -4,18 +4,19 @@ export const READ_SCOPE='https://www.googleapis.com/auth/drive.readonly';
 export const CACHE_SCOPE='https://www.googleapis.com/auth/drive';
 export const CACHE_FILE='_market-view-dashboard-cache.json';
 export const RECHECK_MS=4*3600000;
-export const CACHE_VERSION=5;
+export const CACHE_VERSION=6;
 const MAX_BYTES=24*1024*1024;
 const pick=(value,keys)=>Object.fromEntries(keys.filter(k=>value?.[k]!==undefined).map(k=>[k,value[k]]));
 const fields={holdings:['groww_slug','name','qty','invested','avg_price','ltp','current_value'],credits:['isin','ex_date','shares','amount'],open_lots:['stock_name','isin','quantity','buy_value','buy_date'],stocks:['name','weight','segment','groww_slug','isin']};
 function cleanSnapshot(s){
  const out=pick(s,['store_version','schema_version','dataset','partition','captured_at','as_of','content_hash','confirmedAt','fileId']);
- out.meta=pick(s.meta,['id','name','last_rebalance']);out.tables={};
+ out.meta=pick(s.meta,['id','name','last_rebalance','progressive','positions_captured_at']);out.tables={};
  for(const [name,keys] of Object.entries(fields))if(Array.isArray(s.tables?.[name]))out.tables[name]=s.tables[name].map(row=>pick(row,keys));
  return out;
 }
 export function makeDriveCache(store,views,now=Date.now()){
  const clean={root:pick(store.root,['id','name','mimeType']),loadedAt:store.loadedAt,sourceSignature:store.sourceSignature,warnings:store.warnings.filter(w=>typeof w==='string')};
+ if(store.progressiveSources)clean.progressiveSources=store.progressiveSources.map(s=>pick(s,['account','positionsAt','pricesFrom','pricesTo','fallback','stale']));
  for(const name of ['snapshots','dividends','reports','smallcases'])clean[name]=(store[name]||[]).map(cleanSnapshot);
  // Views originate only from buildPortfolio, never auth/session objects.
  return {version:CACHE_VERSION,rootId:store.root.id,savedAt:new Date(now).toISOString(),store:clean,views:[...views].filter(([selection])=>selection==='null')};
@@ -24,6 +25,7 @@ export function readDriveCache(doc,rootId,now=Date.now()){
  try{
   if(doc?.version!==CACHE_VERSION||doc.rootId!==rootId||doc.store?.root?.id!==rootId||typeof doc.store.root.name!=='string'||!Number.isFinite(Date.parse(doc.savedAt))||Date.parse(doc.savedAt)>now+300000||!Number.isFinite(Date.parse(doc.store.loadedAt))||Date.parse(doc.store.loadedAt)>Date.parse(doc.savedAt)+300000)return null;
   if(typeof doc.store.sourceSignature!=='string'||!/^sha256:[0-9a-f]{64}$/.test(doc.store.sourceSignature))return null;
+  if(doc.store.progressiveSources&&(!Array.isArray(doc.store.progressiveSources)||doc.store.progressiveSources.some(s=>typeof s.account!=='string'||typeof s.positionsAt!=='string'||!numeric(s.fallback)||!numeric(s.stale))))return null;
   if(!Array.isArray(doc.store.warnings)||doc.store.warnings.some(w=>typeof w!=='string'))return null;
   for(const [name,dataset] of [['snapshots','groww.live_holdings'],['dividends','groww.dividend_report'],['reports','groww.pnl_report'],['smallcases','smallcase.constituents']]){
    if(!Array.isArray(doc.store[name]))return null;

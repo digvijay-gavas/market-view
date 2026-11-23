@@ -139,3 +139,19 @@ The cache is keyed by a SHA-256 manifest of source snapshot filenames, file revi
 To initialize, one family member with folder editor access reconnects with shared-cache updates enabled and grants the Drive write scope. After the dashboard finishes, it creates the named file in `market-data`. Other family accounts benefit with read-only logins and do not create separate cache files. The cache can be deleted from the shared folder like an ordinary file; an opted-in editor recreates it on the next refresh. Previous private app-data caches are no longer used and can be removed through Drive’s Manage apps settings if desired. Existing source/browser storage rules remain as documented above.
 
 The Google Cloud OAuth consent configuration must include the `drive` scope for optional editor logins. A reader does not need that scope. Automatic updates require an open tab and valid Google access. Synthetic fixture options `?bm=1&history=1&dense=1` demonstrate BM states; an editor can opt in to shared updates, then a new read-only fixture login reuses the same synthetic cache. No synthetic data is deployed.
+
+
+## Progressive Windows collector
+
+The optional local worker separates daily account position reconciliation from
+shared price observations about every ten minutes during NSE market hours. One
+instrument universe serves all family accounts, and calculated results go into
+the same shared market-data dashboard cache. The viewer shows separate position
+and price timestamps and checks progressive stores every five minutes while
+signed in. Legacy stores keep the four-hour browser check interval.
+
+See [collector setup and recovery](docs/COLLECTOR.md) for encrypted Windows
+Credential Manager setup, account enrollment, scheduling, provider choices,
+machine transfer and missed-day behavior. See [ARC-0001](docs/ARC-0001.md) for the
+implemented architecture. This worker runs on an awake Windows machine; GitHub
+Pages does not run it. Real account authentication is a separate setup step.

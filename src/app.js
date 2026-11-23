@@ -163,7 +163,9 @@ function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
   const selected=selectedSnapshots();
   const dates=[...new Set(selected.map(s=>s.as_of||'unknown'))].sort();
+  const progressive=(store.progressiveSources||[]).filter(s=>selected.some(a=>a.partition===s.account));
   $('freshness').textContent=selected.length?`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`:'No accounts selected';
+  if(progressive.length){const basis=progressive.map(s=>s.positionsAt).sort();const quotes=progressive.map(s=>s.pricesFrom).filter(Boolean).sort();$('freshness').textContent='Positions reconciled: '+stamp(basis[0])+' · Prices fetched: '+(quotes.length?stamp(quotes[0]):'using reconciliation prices')+' · Not exchange real-time';}
   const warnings=[...store.warnings];
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
@@ -256,7 +258,7 @@ function renderDetails(){
  sourcePage=pageControls('source-pages',sourcePage,Math.ceil(selected.length/sourceSize),page=>{sourcePage=page;renderDetails();});
  $('provenance').replaceChildren();for(const s of selected.slice(sourcePage*sourceSize,(sourcePage+1)*sourceSize)){
   const card=text('div','','source-entry');card.append(text('strong',s.partition));
-  const data=text('div','','source-facts');for(const [label,value]of [['Holdings / prices',s.as_of||'Unknown'],['Captured',stamp(s.captured_at)],['Confirmed',stamp(s.confirmedAt)]]){const fact=text('div','');fact.append(text('span',label),text('span',value));data.append(fact);}card.append(data);$('provenance').append(card);
+  const data=text('div','','source-facts');for(const [label,value]of (store.progressiveSources?.find(p=>p.account===s.partition)?[['Positions reconciled',stamp(store.progressiveSources.find(p=>p.account===s.partition).positionsAt)],['Prices fetched',stamp(store.progressiveSources.find(p=>p.account===s.partition).pricesFrom)],['Valuation date',s.as_of||'Mixed price dates']]:[['Holdings / prices',s.as_of||'Unknown'],['Captured',stamp(s.captured_at)],['Confirmed',stamp(s.confirmedAt)]])){const fact=text('div','');fact.append(text('span',label),text('span',value));data.append(fact);}card.append(data);$('provenance').append(card);
  }
  $('warnings-card').hidden=!currentWarnings.length;$('warnings').hidden=!currentWarnings.length;
  warningPage=pageControls('warning-pages',warningPage,Math.ceil(currentWarnings.length/warningSize),page=>{warningPage=page;renderDetails();});
@@ -269,6 +271,7 @@ for(const [button,card]of [['show-accounts','account-chart'],['show-largest','la
 });
 
 const refreshSchedule=new RefreshSchedule({
+ interval:()=>store?.progressiveSources?.length?5*60*1000:4*60*60*1000,
  refresh:()=>selectedRoot?openFolder(selectedRoot):false,
  enabled:()=>Boolean(reader&&token&&Date.now()<expiry&&!busy&&navigator.onLine)
 });

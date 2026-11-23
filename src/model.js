@@ -1,3 +1,4 @@
+import {validateProgressive} from './progressive.js';
 import {openHoldingsXirr} from './xirr.js';
 import {attachBm} from './bm.js';
 // Market store v1 reader. All fixtures in tests are synthetic.
@@ -9,6 +10,7 @@ export const percentage = (part, base) => numeric(part) && numeric(base) && base
 
 export function validateSnapshot(doc, dataset, partition) {
   if (!doc || doc.store_version !== 1 || doc.schema_version !== 1 || doc.dataset !== dataset || doc.partition !== partition || !Number.isFinite(Date.parse(doc.captured_at)) || !/(Z|[+-]\d{2}:\d{2})$/.test(doc.captured_at) || !/^sha256:[0-9a-f]{64}$/.test(doc.content_hash) || (doc.as_of !== null && (typeof doc.as_of !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(doc.as_of))) || !doc.tables || typeof doc.tables !== 'object') throw new Error('Invalid or unsupported snapshot envelope');
+  if(['portfolio.positions','market.prices'].includes(dataset))return validateProgressive(doc);
   if(dataset==='smallcase.constituents'){
     if(!doc.meta||typeof doc.meta.id!=='string'||doc.meta.id.toLowerCase()!==partition.toLowerCase()||!Array.isArray(doc.tables.stocks))throw new Error('Invalid smallcase constituents');
     for(const row of doc.tables.stocks)if(!row||typeof row.name!=='string'||!row.name.trim()||!('weight' in row)||(row.weight!==null&&(!numeric(row.weight)||row.weight<0||row.weight>100)))throw new Error('Invalid smallcase target');

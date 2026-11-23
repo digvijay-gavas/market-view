@@ -7,7 +7,13 @@
     "test": "node --test",
     "build": "node scripts/build.mjs",
     "dev": "node scripts/serve.mjs",
-    "test:preview": "node scripts/fixture-server.mjs"
+    "test:preview": "node scripts/fixture-server.mjs",
+    "collector": "node automation/cli.mjs"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "playwright": "1.65.1"
+  }
 }

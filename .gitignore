@@ -4,3 +4,9 @@ node_modules/
 config.local.*
 *.log
 coverage/
+
+# Collector private state must remain outside the repo and build.
+.collector/
+*.enc.json
+*.transfer.json
+playwright/.auth/
