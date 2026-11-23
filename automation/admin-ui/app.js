@@ -4,7 +4,7 @@ const messages={ADMIN_SESSION_REQUIRED:'This private session has ended. Reopen C
 const describe=code=>messages[code]||String(code||'').replaceAll('_',' ').toLowerCase();
 Object.assign(messages,{SAVED_PROFILE_UNAVAILABLE:'That saved Chrome session is no longer available. Choose another session.',PROFILE_BUSY_OR_UNAVAILABLE:'The saved profile is busy or could not open. Close its other collector window, then retry.',NORMAL_CHROME_PROFILE_UNSUPPORTED:'Choose a saved collector session instead of the normal Chrome data directory.'});
 Object.assign(messages,{EXTENSION_NOT_PAIRED:'Pair the extension in this account’s regular Chrome profile first.',EXTENSION_CAPTURE_REQUIRED:'Open the paired Chrome profile and capture today’s holdings from the extension.',CHROME_PROFILE_NOT_LINKED:'Open the correct Chrome profile manually, then load the extension.',OPEN_CHROME_MANUALLY:'Open the correct Chrome profile manually.'});
-Object.assign(messages,{PARTIAL_HOLDINGS:'Groww returned an incomplete holdings list. No partial positions were saved. Try reconciling again.',PIN_REQUIRED:'Save the Groww PIN here, or unlock Groww manually before reconciling.',EXTENSION_OFFLINE:'No response from Chrome. Open this account’s Chrome profile and try again.',CAPTURE_TIMED_OUT:'Capture timed out. Check Groww in this account’s Chrome profile and try again.'});
+Object.assign(messages,{PARTIAL_HOLDINGS:'Groww returned an incomplete holdings list. No partial positions were saved. Try reconciling again.',PIN_REQUIRED:'Save the Groww PIN here, or unlock Groww manually before reconciling.',EXTENSION_OFFLINE:'Chrome did not respond. Check that the collector extension is installed and enabled in this profile, then retry.',CAPTURE_TIMED_OUT:'Capture timed out. Check Groww in this account’s Chrome profile and try again.'});
 const stamp=value=>value?new Date(value).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',dateStyle:'medium',timeStyle:'short'})+' IST':'Not yet';
 function notice(message,error=false){$('notice').textContent=message;$('notice').classList.toggle('error',error);}
 async function request(path,options={}){const response=await fetch(path,{...options,headers:{'X-Collector-Admin':'1',...options.headers},cache:'no-store',credentials:'same-origin'});const data=await response.json();if(!response.ok)throw new Error(data.error||'SETUP_OR_RUNTIME_ERROR');return data;}
@@ -13,10 +13,10 @@ async function action(action,data={}){
  try{
   const response=await request('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...data})});
   if(response.pairing){const card=cards.get(data.account);card.code.value=response.pairing.code;card.pairing.hidden=false;card.expiry.textContent='Valid until '+stamp(response.pairing.expiresAt)+'. Paste this into the extension in the correct Chrome profile.';}
-  const success={'pin':'PIN saved encrypted.','pair-extension':'Pairing code ready.','revoke-extension':'Pairing revoked.','folder':'Shared folder saved.','add-account':'Account added. Pair its extension next.','open-account-chrome':'Chrome profile opened.','start':'Automatic collection started.','pause':'Automatic collection paused.','initialize':'Collector created.'};
+  const success={'pin':'PIN saved encrypted.','pair-extension':'Pairing code ready.','revoke-extension':'Pairing revoked.','folder':'Shared folder saved.','add-account':'Account added. Pair its extension next.','open-account-chrome':'Chrome profile opened.','start':'Automatic collection started.','pause':'Automatic collection paused.','initialize':'Collector created.','frequency':'Collection frequency saved.'};
   const op=response.operation,job=response.job;
-  outcomes.set(actionKey(action,data.account),op?{phase:'busy',label:'Waiting for Chrome…',message:'Request sent. Keep this account’s Chrome profile open.',operationId:op.id}:job?{phase:'busy',label:'Starting…',message:'Starting the operation…',jobId:job.id}:{phase:'succeeded',message:success[action]||'Succeeded.'});
-  notice(action==='capture-extension'?'Reconciliation requested. Progress appears below the account button.':action==='fetch'?'Fetch started. Progress appears below Fetch now.':action==='pin'?'PIN saved encrypted. Pair the extension to use it.':success[action]||'Updated.');await refresh();
+  outcomes.set(actionKey(action,data.account),op?{phase:'busy',label:'Waiting for Chrome…',message:'Opening this account’s Chrome profile for collection.',operationId:op.id}:job?{phase:'busy',label:'Starting…',message:'Starting the operation…',jobId:job.id}:{phase:'succeeded',message:success[action]||'Succeeded.'});
+  notice(action==='capture-extension'?'Reconciliation requested. Chrome opens automatically; progress appears below the account button.':(action==='fetch'||action==='reconcile-all')?'Collection started. Progress appears beside the collection buttons and in Recent syncs.':action==='pin'?'PIN saved encrypted. Pair the extension to use it.':success[action]||'Updated.');await refresh();
  }catch(error){outcomes.set(actionKey(action,data.account),{phase:'failed',message:describe(error.message),operationId:state?.accounts?.find(a=>a.id===data.account)?.reconciliation?.id||null,operationPhase:state?.accounts?.find(a=>a.id===data.account)?.reconciliation?.phase});notice(describe(error.message),true);}
  finally{posting=false;activeAction=null;renderFeedback();disableControls();}
 }
@@ -39,6 +39,7 @@ function render(){
  $('initialize').hidden=state.initialized;$('workspace').hidden=!state.initialized;if(!state.initialized)return;
  badge($('google-state'),state.googleConnected?'Connected':'Not connected',state.googleConnected?'ready':'');$('client-picker').hidden=state.googleClientSaved;$('connect-google').textContent=state.googleConnected?'Reconnect Google Drive':'Connect Google Drive';
  if(document.activeElement!==$('folder'))$('folder').value=state.rootId||'';badge($('schedule-state'),state.enabled?'Running':'Paused',state.enabled?'ready':'');$('start').hidden=state.enabled;$('pause').hidden=!state.enabled;$('task-state').textContent=state.taskInstalled?'Installed':'Not installed';$('last-run').textContent=stamp(state.lastRunAt);$('next-run').textContent=state.enabled?stamp(state.nextRunAt):'Paused';
+ if(document.activeElement!==$('frequency'))$('frequency').value=(state.schedule?.intervalSeconds||600)/60;if(document.activeElement!==$('positions-cadence'))$('positions-cadence').value=state.positionsCadence||'daily';renderHistory();
  $('account-count').textContent=state.accounts.filter(a=>a.extensionPaired).length+' of '+state.accounts.length+' paired';
  $('extension-folder').value=state.extensionFolder||'';
  for(const account of state.accounts){if(!cards.has(account.id))createCard(account);const c=cards.get(account.id),ready=account.extensionPaired;c.reconciled.textContent='Positions reconciled: '+(account.lastPosition?stamp(account.lastPosition):'Not yet');
@@ -58,30 +59,43 @@ const actionKey=(action,account)=>action+':'+(account||'');
 function control(action,account){
  const c=cards.get(account);
  if(c){const defs={'pin':[c.save,c.pinStatus,'Save PIN','Saving…'],'open-account-chrome':[c.open,c.openStatus,'Open account Chrome profile','Opening…'],'pair-extension':[c.pair,c.pairStatus,state.accounts.find(a=>a.id===account)?.extensionPaired?'Create replacement pairing code':'Pair Chrome extension','Creating code…'],'capture-extension':[c.capture,c.captureStatus,'Reconcile positions','Requesting…'],'revoke-extension':[c.revoke,c.revokeStatus,'Revoke extension pairing','Revoking…']};if(defs[action])return defs[action];}
- return {'fetch':[$('fetch'),$('fetch-feedback'),'Fetch now','Fetching…'],'google':[$('connect-google'),$('connect-feedback'),state?.googleConnected?'Reconnect Google Drive':'Connect Google Drive','Connecting…'],'folder':[$('folder-form').querySelector('button'),$('folder-feedback'),'Save folder','Saving…'],'start':[$('start'),$('start-feedback'),'Start automatic collection','Starting…'],'pause':[$('pause'),$('pause-feedback'),'Pause collection','Pausing…'],'add-account':[$('add-account').querySelector('button'),$('account-feedback'),'Add account','Adding…'],'initialize':[$('initialize').querySelector('button'),$('initialize-feedback'),'Create collector','Creating…']}[action];
+ return {'frequency':[$('save-frequency'),$('frequency-feedback'),'Save frequency','Saving…'],'reconcile-all':[$('reconcile-all'),$('reconcile-all-feedback'),'Reconcile all','Reconciling…'],'fetch':[$('fetch'),$('fetch-feedback'),'Fetch now','Fetching…'],'google':[$('connect-google'),$('connect-feedback'),state?.googleConnected?'Reconnect Google Drive':'Connect Google Drive','Connecting…'],'folder':[$('folder-form').querySelector('button'),$('folder-feedback'),'Save folder','Saving…'],'start':[$('start'),$('start-feedback'),'Start automatic collection','Starting…'],'pause':[$('pause'),$('pause-feedback'),'Pause collection','Pausing…'],'add-account':[$('add-account').querySelector('button'),$('account-feedback'),'Add account','Adding…'],'initialize':[$('initialize').querySelector('button'),$('initialize-feedback'),'Create collector','Creating…']}[action];
 }
 function paint(def,feedback){if(!def)return;const [button,status,label]=def;if(!button||!status)return;if(button.textContent!==(feedback.label||label))button.textContent=feedback.label||label;button.setAttribute('aria-busy',String(feedback.phase==='busy'));if(status.textContent!==(feedback.message||''))status.textContent=feedback.message||'';status.hidden=!status.textContent;status.className='action-feedback '+feedback.phase;}
 function renderFeedback(){
  if(!state)return;
- const targets=[['initialize'],['fetch'],['google'],['folder'],['start'],['pause'],['add-account'],...state.accounts.flatMap(a=>['pin','open-account-chrome','pair-extension','capture-extension','revoke-extension'].map(action=>[action,a.id]))];
+ const targets=[['frequency'],['reconcile-all'],['initialize'],['fetch'],['google'],['folder'],['start'],['pause'],['add-account'],...state.accounts.flatMap(a=>['pin','open-account-chrome','pair-extension','capture-extension','revoke-extension'].map(action=>[action,a.id]))];
  for(const [action,accountId]of targets){const key=actionKey(action,accountId),def=control(action,accountId);if(!def)continue;const account=state.accounts.find(a=>a.id===accountId);let local=outcomes.get(key);
   if(local?.jobId&&state.job?.id===local.jobId||local?.operationId&&account?.reconciliation?.id===local.operationId&&local.phase==='busy'){outcomes.delete(key);local=null;}
   if(action==='capture-extension'&&local?.phase==='failed'&&((account?.reconciliation?.id||null)!==local.operationId||account?.reconciliation?.phase!==local.operationPhase)){outcomes.delete(key);local=null;}
   let feedback=local||{phase:'idle',message:''};
   if(action==='capture-extension'&&!local)feedback=reconciliationFeedback(account,state.googleConnected,describe);
-  if(action==='fetch'&&!local)feedback=fetchFeedback(state,describe);
+  if((action==='fetch'||action==='reconcile-all')&&!local){feedback=fetchFeedback(state,describe);if(action==='reconcile-all'&&feedback.phase==='busy')feedback=state.job?.account?{phase:'idle',message:'Collecting '+state.job.account+'…'}:{...feedback,label:'Reconciling all…'};}
+  if(action==='capture-extension'&&state.job?.type==='fetch'&&state.job.account===accountId&&state.job.phase==='running'&&!['queued','running','captured'].includes(account?.reconciliation?.phase))feedback={phase:'busy',label:'Opening Chrome…',message:'Starting collection in the paired Chrome profile…'};
   if(action==='google'&&!local&&state.job?.type==='google'){feedback=['running','signin'].includes(state.job.phase)?{phase:'busy',label:'Waiting for Google…',message:'Complete sign-in in the Google window.'}:state.job.phase==='complete'?{phase:'succeeded',message:'Google Drive connected.'}:state.job.phase==='failed'?{phase:'failed',message:describe(state.job.error)}:{phase:'idle',message:''};}
   if(activeAction?.action===action&&activeAction.account===accountId)feedback={phase:'busy',label:def[3],message:action==='capture-extension'?'Sending reconciliation request…':'Working…'};
   paint(def,feedback);
  }
 }
 
+function renderHistory(){
+ const list=$('sync-history');list.replaceChildren();const entries=Array.isArray(state.syncHistory)?state.syncHistory:[];
+ $('sync-active').textContent=entries[0]?.phase==='running'?'Collection in progress · '+entries[0].scope+' · '+stamp(entries[0].startedAt):'Most recent '+Math.min(entries.length,8)+' runs. Only complete captures are published.';
+ if(!entries.length){const li=document.createElement('li');li.textContent='No managed syncs yet.';list.append(li);}
+ for(const entry of entries.slice(0,8)){
+  const li=document.createElement('li'),title=document.createElement('strong'),details=document.createElement('p');
+  title.textContent=({succeeded:'Succeeded',partial:'Partly updated',failed:'Failed',running:'In progress',interrupted:'Interrupted'}[entry.phase]||entry.phase)+' · '+entry.source+' · '+entry.scope;
+  details.textContent=stamp(entry.startedAt)+(entry.error?' · '+describe(entry.error):'');li.append(title,details);
+  for(const a of entry.accounts||[]){const row=document.createElement('p');row.textContent=a.account+' · '+({synced:'Positions synced',captured:'Captured; waiting for sync',running:'Collecting…',failed:'Failed'}[a.phase]||a.phase)+(a.error?' · '+describe(a.error):a.positions!==undefined?' · '+a.positions+' positions':'');li.append(row);}list.append(li);
+ }
+}
 async function refresh(){if(polling)return;polling=true;try{state=await request('/api/status');$('locked').hidden=true;render();}finally{polling=false;}}
 $('initialize').addEventListener('submit',event=>{event.preventDefault();action('initialize',{account:$('first-account').value.trim()});});
 $('folder-form').addEventListener('submit',event=>{event.preventDefault();action('folder',{rootId:$('folder').value.trim()});});
 $('add-account').addEventListener('submit',event=>{event.preventDefault();const account=$('account-name').value.trim();$('account-name').value='';action('add-account',{account});});
 $('connect-google').addEventListener('click',async()=>{const file=$('google-client').files[0];try{if(file&&file.size>30000)throw new Error('DESKTOP_CLIENT_REQUIRED');const client=file?JSON.parse(await file.text()):undefined;$('google-client').value='';await action('google',{client});}catch{notice('Choose a valid Google Desktop client JSON file.',true);}});
-for(const id of ['start','pause','fetch'])$(id).addEventListener('click',()=>action(id));
+$('frequency-form').addEventListener('submit',event=>{event.preventDefault();action('frequency',{minutes:Number($('frequency').value),positionsCadence:$('positions-cadence').value});});
+for(const id of ['start','pause','fetch','reconcile-all'])$(id).addEventListener('click',()=>action(id));
 $('confirm-account').addEventListener('click',()=>action('confirm',{id:state.job.id}));$('cancel-job').addEventListener('click',()=>action('cancel',{id:state.job.id}));
 try{
  let key=location.hash.slice(1);history.replaceState(null,'',location.pathname);

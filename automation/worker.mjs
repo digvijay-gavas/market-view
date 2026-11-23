@@ -10,11 +10,11 @@ import {positionRows,positionChanges} from '../src/progressive.js';
 import {extensionCapture} from './extension-inbox.mjs';
 import {runSummary} from './run-status.mjs';
 export async function readJSON(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw error;}}
-export async function lock(home){
- const dir=join(home,'run.lock');await mkdir(home,{recursive:true,mode:0o700});
+export async function lock(home,name='run.lock'){
+ const dir=join(home,name);await mkdir(home,{recursive:true,mode:0o700});
  try{await mkdir(dir);}catch(error){
   if(error.code!=='EEXIST')throw error;const owner=await readJSON(join(dir,'owner.json'),null);
-  if(!owner){if(Date.now()-(await stat(dir)).mtimeMs<60000)return null;try{await rmdir(dir);}catch{return null;}return lock(home);}try{process.kill(owner.pid,0);return null;}catch(error){if(error.code!=='ESRCH')return null;await unlink(join(dir,'owner.json'));await rmdir(dir);return lock(home);}
+  if(!owner){if(Date.now()-(await stat(dir)).mtimeMs<60000)return null;try{await rmdir(dir);}catch{return null;}return lock(home,name);}try{process.kill(owner.pid,0);return null;}catch(error){if(error.code!=='ESRCH')return null;await unlink(join(dir,'owner.json'));await rmdir(dir);return lock(home,name);}
  }
  await atomicJSON(join(dir,'owner.json'),{pid:process.pid,at:new Date().toISOString()});
  return async()=>{await unlink(join(dir,'owner.json'));await rmdir(dir);};
@@ -23,6 +23,7 @@ export function validateConfig(config){
  if(config?.version!==1||!Array.isArray(config.accounts)||!config.accounts.length||!config.schedule)throw new Error('CONFIG_INVALID');
  const ids=new Set();for(const a of config.accounts){if(!/^[a-z0-9_-]+$/.test(a.id)||ids.has(a.id))throw new Error('CONFIG_INVALID');ids.add(a.id);}
  if(config.rootId&&!/^[A-Za-z0-9_-]+$/.test(config.rootId))throw new Error('CONFIG_INVALID');
+ if(config.positionsCadence&&!['daily','each-run'].includes(config.positionsCadence))throw new Error('CONFIG_INVALID');
  if(!['groww-public','groww-api'].includes(config.priceProvider))throw new Error('CONFIG_INVALID');nextDelay(config.schedule,()=>0);return config;
 }
 export async function runCycle({config,state,vault,publisher,home,calendar,now=new Date(),force=false,positionsNow=false,capture=capturePositions,quotes=fetchQuotes,persist=async()=>{}}={}){

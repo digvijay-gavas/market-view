@@ -1,8 +1,8 @@
 import {probePage,extractHoldings,HOLDINGS_URL,fillPinInPage,scrollHoldings} from './holdings.js';
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=code=>{throw new Error(code);};
-export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.now,timeoutMs=90000}={}){
- const tab=await chromeApi.tabs.create({url:HOLDINGS_URL,active:false});let attempted=false,empty=0,stable=0,previous=-1;
+export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.now,timeoutMs=90000,windowId}={}){
+ const tab=await chromeApi.tabs.create({url:HOLDINGS_URL,active:false,...(Number.isInteger(windowId)?{windowId}:{})});let attempted=false,empty=0,stable=0,previous=-1;
  const evaluate=async(func,args=[])=>{const current=await chromeApi.tabs.get(tab.id);if(!current.url?.startsWith('https://groww.in/'))fail('AUTH_REQUIRED');const result=await chromeApi.scripting.executeScript({target:{tabId:tab.id},func,args});return result[0]?.result;};
  try{
   const deadline=now()+timeoutMs;
@@ -22,7 +22,7 @@ export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.n
  }finally{await chromeApi.tabs.remove(tab.id).catch(()=>{});}
 }
 export async function collectCycle(chromeApi,api,manual=false,options={}){
- const plan=await api('poll',{manual});if(plan.action!=='capture')return {state:plan.action,reason:plan.reason,account:plan.account};
+ const plan=await api('poll',{manual,...(options.runnerTicket?{runnerTicket:options.runnerTicket}:{})});if(plan.action!=='capture')return {state:plan.action,reason:plan.reason,account:plan.account};
  try{const capture=await captureHoldings(chromeApi,api,plan,options),result=await api('result',{...capture,requestId:plan.requestId});return {state:'captured',positions:result.positions,capturedAt:result.capturedAt,account:plan.account};}
  catch(error){const code=/^[A-Z_]+$/.test(error.message||'')?error.message:'GROWW_UNAVAILABLE';await api('error',{requestId:plan.requestId,code}).catch(()=>{});return {state:'attention',reason:code,account:plan.account};}
 }

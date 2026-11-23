@@ -15,5 +15,5 @@ export function duePlan(config,state,calendar,now=new Date(),force=false){
  if(!config.enabled&&!force)return {due:false,reason:'DISABLED'};
  if(!force&&!market.open)return {due:false,reason:market.reason};
  if(!force&&Date.parse(state.nextRunAt||'')>+now)return {due:false,reason:'NOT_DUE'};
- return {due:true,day:market.day,positions:config.accounts.filter(a=>a.enabled!==false&&state.positions?.[a.id]?.day!==market.day).map(a=>a.id)};
+ return {due:true,day:market.day,positions:config.accounts.filter(a=>a.enabled!==false&&(config.positionsCadence==='each-run'||state.positions?.[a.id]?.day!==market.day)).map(a=>a.id)};
 }

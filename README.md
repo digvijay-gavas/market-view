@@ -164,3 +164,24 @@ The Chrome extension now collects holdings inside existing signed-in profiles.
 See [extension setup](docs/COLLECTOR.md#chrome-extension-setup). Pair it from the
 local admin UI; Google login remains manual in regular Chrome. The background
 worker publishes validated captures, prices and the family-shared Drive cache.
+
+
+### Collection controls
+
+Collector Admin includes per-account **Reconcile positions**, global **Reconcile
+all**, and **Fetch now**. Manual collection opens a temporary window in each paired
+account's existing normal Chrome profile, collects holdings, closes its window,
+then updates shared prices and the family cache once. Other open Chrome tabs and
+windows are preserved. Expired logins/OTP still require manual sign-in.
+
+Set the price interval (5-240 minutes) and holdings cadence (once per market day
+or every update), then use **Start automatic collection**. The Windows task checks
+NSE hours/holidays and adds up to one minute of timing jitter. This PC must be awake
+and the Windows user signed in; the admin panel may be closed. **Recent syncs**
+shows the last eight of twelve saved attempts, including account failures.
+
+After updating an existing unpacked installation, reload **Market Family
+Collector** once in `chrome://extensions` in each paired profile. Login and pairing
+remain saved. The local runner has no credentials; authenticated account-specific
+tokens are still required. PINs, session data and runtime history remain outside
+Git under the private collector home. Collection does not submit buy/sell orders.

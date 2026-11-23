@@ -22,7 +22,10 @@ export class ExtensionBridge{
  });}
  async revoke({account}){return this.locked(async()=>{const {config,vault}=await this.context();const entry=config.accounts.find(a=>a.id===account);if(!entry)fail('UNKNOWN_ACCOUNT');const secret=vault.data.accounts[account];if(secret){delete secret.extension;secret.bound=false;}entry.captureMode='extension';await vault.save();await this.deps.atomicJSON(join(this.home,'config.json'),config);for(const [key,item]of this.codes)if(item.account===account)this.codes.delete(key);});}
  async requestCapture({account}){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');const current=captureOperation(ext,now);if(['queued','running'].includes(current?.phase))return current;ext.operation=queuedCapture(now);ext.manualRequestedAt=now.toISOString();ext.retryAt=null;ext.lastError=null;ext.request=null;await vault.save();return captureOperation(ext,now);});}
+ async prepareManaged(account){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.operation=queuedCapture(now);ext.operation.managed=true;ext.runnerTicket=randomBytes(24).toString('hex');ext.manualRequestedAt=now.toISOString();ext.request=null;ext.retryAt=null;ext.lastError=null;await vault.save();return {extensionId:ext.extensionId,ticket:ext.runnerTicket,operationId:ext.operation.id};});}
+ async finishManaged(account,id,error,errorStage='capture'){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(ext?.operation?.id!==id)return;if(error)Object.assign(ext.operation,{phase:'failed',error,errorStage,completedAt:now.toISOString()});delete ext.runnerTicket;ext.manualRequestedAt=null;await vault.save();});}
  async settleCapture(account,id){
+  const initial=await this.deps.openVault();if(initial.data.accounts[account]?.extension?.operation?.managed)return;
   let result,error;try{result=await this.deps.afterCapture(account,id);}catch(e){error=/^[A-Z_]+$/.test(e.message||'')?e.message:'DRIVE_SYNC_FAILED';}
   await this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension,op=ext?.operation;if(!op||op.id!==id||op.phase==='succeeded')return;
    if(error){Object.assign(op,{phase:'failed',error,errorStage:'publish',completedAt:now.toISOString()});}
@@ -56,6 +59,7 @@ export class ExtensionBridge{
    }
    if(action==='poll'){
     if(!ext.confirmed)return {action:'confirm',account:input.account};
+    if((input.runnerTicket&&!same(ext.runnerTicket,input.runnerTicket))||(ext.runnerTicket&&(!same(ext.runnerTicket,input.runnerTicket)||captureOperation(ext,now)?.phase==='failed')))return {action:'idle',reason:'MANAGED_RUN_PENDING',account:input.account};
     if(['queued','running'].includes(ext.operation?.phase)&&captureOperation(ext,now)?.phase==='failed'){ext.operation=captureOperation(ext,now);ext.manualRequestedAt=null;ext.request=null;}
     const manual=input.manual===true||Boolean(ext.manualRequestedAt),calendar=config.calendar||await this.deps.readJSON(new URL('calendar.json',import.meta.url));
     const market=marketOpen(now,calendar,config.schedule);
