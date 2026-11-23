@@ -10,3 +10,12 @@ coverage/
 *.enc.json
 *.transfer.json
 playwright/.auth/
+
+# Browser and admin runtime files never belong in source control.
+profiles/
+file-cache/
+admin-instance.json
+scheduled-task.xml
+**/Cookies*
+**/Login Data*
+**/Local State

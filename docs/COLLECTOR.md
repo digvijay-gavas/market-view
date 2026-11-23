@@ -45,6 +45,85 @@ dashboard cache benefits every authorized family account. Folder permissions are
 inherited and never modified. Designate one active worker to avoid duplicate work;
 the local process lock does not coordinate separate machines.
 
+## Admin page (recommended)
+
+Double-click **Collector Admin.vbs** in the repository to open the local admin
+page. On this installation it is also available from the desktop shortcut.
+An existing running admin instance is reused. Node 22+ and `npm ci` are one-time
+prerequisites; routine setup and operation do not need a terminal. A startup
+message explains missing prerequisites or a local port conflict.
+
+The page provides:
+
+- Hidden PIN entry and encrypted save for each account; saved PINs are never returned.
+- A separate Groww Chrome window per account, with manual OTP/login as needed.
+- An explicit account-nickname confirmation after holdings load. Enrollment is
+  incomplete until confirmed; cancel closes the window and releases the worker lock.
+- Google Drive offline consent using a Desktop OAuth client file selected once.
+  Subsequent connections reuse the encrypted client registration.
+- Shared-folder selection, account addition, start/pause scheduling, Fetch now,
+  and account/checkpoint status.
+
+The server listens only on `127.0.0.1:5186`. The launcher opens a private session
+using a random bootstrap key, exchanged for an HttpOnly SameSite cookie. API
+requests require the local Host, same-origin POSTs and an explicit request header.
+The bootstrap key is removed from browser history. PINs never go into browser
+storage, URLs or API responses. The ephemeral admin key lives in the private
+collector directory and changes on server restart. This page and its server are
+excluded from the GitHub Pages build. Use it on the Windows collector computer;
+the public portfolio page cannot enroll local Chrome accounts or unlock the vault.
+
+Setup jobs and PIN/config changes share the collector's process lock so scheduled
+runs cannot overwrite their saved credentials. Account enrollment can be cancelled
+from the page. An in-progress Fetch now is allowed to finish. Closing the admin tab
+does not stop the scheduled collector; pause it from the page when required.
+
+The equivalent optional launch commands are `npm run admin` or
+`npm run collector -- admin`. The command-line setup below remains available.
+
+### Reusing existing Chrome sessions
+
+Each account has a **Chrome session** selector. Existing isolated profiles from
+the original sibling `market/data/cache/chrome` store are discovered by directory
+metadata and offered as **Saved collector** sessions. Choose one and enroll; the
+actual session directory is reused without copying cookies or changing your
+normal Chrome profile. Its account association is saved only after you confirm
+the visible account nickname. Cancel leaves the previous association unchanged.
+
+On this installation the original mapping is swati=Profile 2, anna=Profile 4,
+aai=Profile 5, bunny=Bunny, teju=Profile 1. These are local setup suggestions,
+not automatic enrollment or proof that a session is still signed in. A valid
+Groww session can avoid another Google login; an expired/revoked session still
+requires Groww authentication. If another collector/browser holds the saved
+profile, close that collector window and retry. No process is killed and no
+profile lock file is removed automatically.
+
+Normal Chrome's default user-data tree is rejected for automated profile access.
+Chrome 136+ restricts debugging that directory; this implementation neither
+disables that protection nor tries to decrypt or extract the main profile's
+cookies. The separate private collector profile remains available as a fallback.
+Cross-machine imports clear machine-specific profile paths and restore only the
+encrypted Groww session state, which may require fresh authentication.
+
+### Private file locations
+
+- Encrypted PINs, Google offline credentials and Groww session exports:
+  `%LOCALAPPDATA%\MarketViewCollector\secrets.enc.json`.
+- AES key: the current Windows user's Credential Manager, under a
+  `MarketView/Collector/...` entry; no key file is committed.
+- Private collector Chrome directories:
+  `%LOCALAPPDATA%\MarketViewCollector\profiles\<account>`.
+- Reused original collector directories: the existing ignored
+  `market/data/cache/chrome/<profile>` locations; no new copy is made.
+- Ordinary Chrome profiles remain in
+  `%LOCALAPPDATA%\Google\Chrome\User Data`.
+
+Collector state stays outside market-view. Git ignore rules also cover encrypted
+vaults, transfer bundles, profiles and Chrome credential databases if accidentally
+copied into the checkout. The static build copies neither automation nor private
+runtime files. Browser profiles use Chrome's own local storage protections; they
+are not encrypted by the collector PIN vault.
+
 ## One-time Windows setup
 
 Run these in a normal PowerShell terminal from the repository. Never enter PINs,

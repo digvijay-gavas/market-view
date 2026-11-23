@@ -1,5 +1,6 @@
 import {mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
+import {reusableProfile} from './profiles.mjs';
 export const HOLDINGS_URL='https://groww.in/stocks/user/holdings';
 export function probePage(){
  const text=document.body?.innerText||'',rows=[...document.querySelectorAll('tr[class*="holdingRow_tablerow"]')];
@@ -20,11 +21,13 @@ export function collectorError(code){const error=new Error(code);error.code=code
 export function filterState(state){return {cookies:(state.cookies||[]).filter(c=>/(^|\.)groww\.in$/i.test(c.domain.replace(/^\./,''))),origins:(state.origins||[]).filter(o=>{try{const u=new URL(o.origin);return u.protocol==='https:'&&/(^|\.)groww\.in$/i.test(u.hostname);}catch{return false;}})};}
 export async function openProfile(home,id,options={}){
  if(!/^[a-z0-9_-]+$/.test(id))throw collectorError('INVALID_ACCOUNT');
- // A dedicated user-data directory; never read or clone the ordinary Chrome profile.
- const path=join(home,'profiles',id);await mkdir(path,{recursive:true,mode:0o700});
+ // Reuse an explicitly selected collector directory, never the normal Chrome root.
+ const path=options.profilePath?await reusableProfile(options.profilePath):join(home,'profiles',id);await mkdir(path,{recursive:true,mode:0o700});
  delete process.env.PWDEBUG;delete process.env.DEBUG;
  const {chromium}=await import('playwright');
- const context=await chromium.launchPersistentContext(path,{channel:options.channel||'chrome',headless:options.headless!==false,viewport:{width:1440,height:1000},timeout:30000,args:['--disable-background-networking']});
+ let context;
+ try{context=await chromium.launchPersistentContext(path,{channel:options.channel||'chrome',headless:options.headless!==false,viewport:{width:1440,height:1000},timeout:30000,args:['--disable-background-networking',...(options.profilePath?['--profile-directory=Default']:[])]});}
+ catch(error){if(options.profilePath)throw collectorError('PROFILE_BUSY_OR_UNAVAILABLE');throw error;}
  context.setDefaultTimeout(10000);
  // Collection has no order-placement path. Also reject accidental mutation requests.
  await context.route('**/*',route=>{const req=route.request(),url=new URL(req.url());if(/(^|\.)groww\.in$/.test(url.hostname)&&req.method()!=='GET'&&/\/(?:order|orders|withdraw|withdrawal|transfer-funds)(?:\/|$)/i.test(url.pathname))return route.abort();return route.continue();});
@@ -56,7 +59,7 @@ export async function waitReady(page,{pin,timeoutMs=60000,interactive=false,onPi
 }
 export async function capturePositions(home,account,secret,options={}){
  if(!secret?.bound)throw collectorError('PROFILE_SETUP_REQUIRED');
- const context=await openProfile(home,account.id,{...options,restore:secret.restore?secret.storageState:null});
+ const context=await openProfile(home,account.id,{...options,profilePath:account.profileDirectory,restore:secret.restore?secret.storageState:null});
  try{
   const page=context.pages()[0]||await context.newPage();await page.goto(HOLDINGS_URL,{waitUntil:'domcontentloaded',timeout:30000});
   const ready=await waitReady(page,{pin:secret.pin,timeoutMs:options.timeoutMs||60000,onPinAttempt:options.onPinAttempt});

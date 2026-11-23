@@ -16,3 +16,7 @@ export async function installTask(home){
  const path=join(home,'scheduled-task.xml');await writeFile(path,'\ufeff'+taskXML({user,node:process.execPath,repo,home}),{encoding:'utf16le',mode:0o600});
  await exec('schtasks.exe',['/Create','/TN','MarketView Progressive Collector','/XML',path,'/F'],{windowsHide:true});return 'MarketView Progressive Collector';
 }
+export async function taskInstalled(){
+ if(process.platform!=='win32')return false;
+ try{await exec('schtasks.exe',['/Query','/TN','MarketView Progressive Collector','/FO','CSV','/NH'],{windowsHide:true});return true;}catch{return false;}
+}

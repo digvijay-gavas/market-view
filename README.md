@@ -155,3 +155,7 @@ Credential Manager setup, account enrollment, scheduling, provider choices,
 machine transfer and missed-day behavior. See [ARC-0001](docs/ARC-0001.md) for the
 implemented architecture. This worker runs on an awake Windows machine; GitHub
 Pages does not run it. Real account authentication is a separate setup step.
+
+Double-click **Collector Admin.vbs** for local PIN entry, Groww enrollment, Google
+Drive connection, scheduling controls and status. The admin page runs only on the
+collector computer and is excluded from GitHub Pages. See the [admin setup guide](docs/COLLECTOR.md#admin-page-recommended).

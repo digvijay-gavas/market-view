@@ -67,6 +67,8 @@ export async function run(home,{force=false,positionsNow=false,dryRun=false}={})
  const plan=duePlan(config,state,calendar,new Date(),force);if(dryRun||!plan.due)return {ran:false,...plan};
  const release=await lock(home);if(!release)return {ran:false,reason:'ALREADY_RUNNING'};
  try{
+  Object.assign(config,validateConfig(await readJSON(join(home,'config.json'),null)));
+  const recheck=duePlan(config,state,calendar,new Date(),force);if(!recheck.due)return {ran:false,...recheck};
   Object.assign(state,await readJSON(join(home,'state.json'),{}));const vault=await new Vault(home).open();const token=await accessToken(vault.data.google);
   const publisher=new Publisher(token,config.rootId,{cache:new FileBodyCache(home)});
   const result=await runCycle({config,state,vault,publisher,home,calendar,force,positionsNow,persist:s=>atomicJSON(join(home,'state.json'),s)});await atomicJSON(join(home,'state.json'),result.state);return result;
