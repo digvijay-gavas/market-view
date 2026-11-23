@@ -159,3 +159,8 @@ Pages does not run it. Real account authentication is a separate setup step.
 Double-click **Collector Admin.vbs** for local PIN entry, Groww enrollment, Google
 Drive connection, scheduling controls and status. The admin page runs only on the
 collector computer and is excluded from GitHub Pages. See the [admin setup guide](docs/COLLECTOR.md#admin-page-recommended).
+
+The Chrome extension now collects holdings inside existing signed-in profiles.
+See [extension setup](docs/COLLECTOR.md#chrome-extension-setup). Pair it from the
+local admin UI; Google login remains manual in regular Chrome. The background
+worker publishes validated captures, prices and the family-shared Drive cache.

@@ -92,7 +92,7 @@ export async function main(args=process.argv.slice(2)){
    const password=await secretPrompt('Transfer master passphrase (hidden): ');const bundle=portableOpen(JSON.parse(await readFile(outsideRepo(args[1]),'utf8')),password);
    validateConfig(bundle.config);if(bundle.version!==1||!bundle.secrets?.accounts)throw new Error('INVALID_TRANSFER_BUNDLE');
    for(const account of bundle.config.accounts){delete account.profileDirectory;delete account.legacyProfileHint;}
-   for(const secret of Object.values(bundle.secrets.accounts)){secret.restore=true;secret.pinAttemptPending=false;}
+   for(const secret of Object.values(bundle.secrets.accounts)){secret.restore=true;secret.pinAttemptPending=false;delete secret.extension;if(bundle.config.collectionMode==='extension')secret.bound=false;}
    vault.data=bundle.secrets;await vault.save();await atomicJSON(configPath,{...bundle.config,enabled:false});console.log('Transfer imported and re-encrypted for this Windows user. Fresh Groww login may still be required. Scheduling remains disabled.');
   }else throw new Error('UNKNOWN_COMMAND');
  }finally{await release();}

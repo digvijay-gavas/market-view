@@ -45,6 +45,75 @@ dashboard cache benefits every authorized family account. Folder permissions are
 inherited and never modified. Designate one active worker to avoid duplicate work;
 the local process lock does not coordinate separate machines.
 
+## Chrome extension setup
+
+The recommended holdings lane uses your existing, ordinary Chrome profiles.
+Google sign-in is manual in normal Chrome. Playwright does not control sign-in.
+No browser cookies are copied or exported by the extension.
+
+1. Open **Market Collector Admin** from the desktop shortcut or repository launcher.
+2. For an account, click **Open account Chrome profile**. This opens its original
+   profile's `chrome://extensions` page without automation/debugging flags. If no
+   profile suggestion exists, open the correct profile yourself.
+3. In that Chrome profile enable Developer mode, choose **Load unpacked**, and
+   select the `extension` folder in this checkout. Keep the folder in place.
+4. In Collector Admin, click **Pair Chrome extension** for the account. Copy its
+   one-time code into **Market Family Collector** in that Chrome profile. Codes
+   expire after ten minutes and are consumed once.
+5. The extension displays the account nickname. Check the profile/account yourself
+   and explicitly confirm. It then attempts one initial holdings capture.
+6. If Groww asks for sign-in or OTP, click **Open Groww to sign in** in the
+   extension and complete it manually in ordinary Chrome, then capture again.
+   No Google page is scripted. Enter a Groww PIN in the admin page if unattended
+   PIN unlock is wanted; manual Groww unlock also works.
+7. Connect Google Drive in Collector Admin and start automatic collection. Repeat
+   installation/pairing for the other account profiles. One profile is paired
+   with one account; a replacement pairing invalidates its previous token.
+
+The extension requests `storage`, `alarms`, `scripting`, and host access only to
+`https://groww.in/*` and IPv4 loopback. Chrome may ask you to allow Groww or local
+network access. The code performs no order placement, transfers or withdrawals.
+It reads holdings from an inactive tab that it creates and closes, including on
+failure; it does not close an existing user tab. PIN filling runs only in a
+recognised Groww PIN form on the exact HTTPS groww.in origin.
+
+The local bridge is part of the admin server on `127.0.0.1:5186`. Scheduled worker
+ticks ensure it is running without opening an admin tab. Pairing tokens are
+restricted to an account, Chrome extension ID and per-profile client ID; the
+server stores their hashes in the encrypted Windows vault. The extension keeps
+its token in private Chrome local extension storage, never its PIN. Groww or
+Google pages cannot call the privileged runtime message handler. Pairing can be
+revoked from the local admin page.
+
+After confirmation, alarms check the bridge once a minute. Automatic holdings
+capture happens once per market day when the account's Chrome profile is running,
+the collector is enabled and the verified NSE calendar permits it. The computer
+must be awake. The extension cannot run in a closed/unloaded Chrome profile and
+does not promise a headless browser. Missed days capture the latest state on the
+next eligible run. **Request holdings capture** queues a manual capture for the
+next poll; **Capture holdings now** in the extension can run while paused or
+outside market hours. These actions still respect PIN attempt protection.
+
+PIN release requires an authenticated, confirmed pairing and an unexpired capture
+nonce. The pending-attempt guard is persisted before the PIN is returned once
+to the extension's memory. A failure/crash blocks further PIN releases. Unlock
+Groww manually, then capture successfully to clear the guard, or explicitly
+re-pair and confirm the account after correcting its PIN. Login challenges stop
+capture and back off; no challenge is bypassed.
+
+Accepted holdings are validated and stored as an encrypted inbox in the same
+private vault. Capture times are preserved. If Google/root setup is ready, the
+bridge starts a worker run to publish the observations and update the shared
+cache; otherwise the next configured worker run can consume them. The worker
+never opens Playwright for accounts using the extension lane. Prices continue to
+refresh for all accounts using the last known positions even when Chrome is closed.
+
+The previous isolated-profile/browser commands below remain for compatibility;
+extension pairing switches the local collector to the extension holdings lane.
+Machine transfer requires installing and pairing the extension again. Runtime
+tokens, codes, inbox data and PINs are never included in the extension source or
+the public Pages build.
+
 ## Admin page (recommended)
 
 Double-click **Collector Admin.vbs** in the repository to open the local admin

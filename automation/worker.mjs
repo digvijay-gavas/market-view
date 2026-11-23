@@ -7,6 +7,7 @@ import {capturePositions} from './browser.mjs';
 import {fetchQuotes,universe} from './prices.mjs';
 import {Publisher,FileBodyCache,accessToken} from './drive.mjs';
 import {positionRows,positionChanges} from '../src/progressive.js';
+import {extensionCapture} from './extension-inbox.mjs';
 export async function readJSON(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw error;}}
 export async function lock(home){
  const dir=join(home,'run.lock');await mkdir(home,{recursive:true,mode:0o700});
@@ -37,13 +38,14 @@ export async function runCycle({config,state,vault,publisher,home,calendar,now=n
   if(vault.data.accounts[account.id]?.pinAttemptPending)state.blocked[account.id]='PIN_CHECK_REQUIRED';
   if(needs&&!state.blocked[account.id]){
    try{
-    const captureResult=await capture(home,account,vault.data.accounts[account.id],{channel:config.browserChannel,headless:true,onPinAttempt:async()=>{vault.data.accounts[account.id].pinAttemptPending=true;await vault.save();}});
-    const published=await publisher.publish('portfolio.positions',account.id,{positions:captureResult.rows},{},now);
-    if(previous){const changes=positionChanges(previous,published.doc);if(changes.length)await publisher.publish('portfolio.position_changes',account.id,{changes},{interval_start:previous.captured_at,interval_end:now.toISOString(),note:'Observed position changes; not verified trades.'},now);}
-    if(config.legacyCompatibility!==false){const rows=captureResult.rows.map(r=>({groww_slug:r.groww_slug,name:r.name,qty:r.qty,avg_price:r.avg_price,ltp:r.reference_price,current_value:r.reference_value,invested:r.invested}));await publisher.publish('groww.live_holdings',account.id,{holdings:rows},{},now);}
-    const secret=vault.data.accounts[account.id];secret.storageState=captureResult.storageState;secret.restore=false;secret.pinAttemptPending=false;
-    previous=published.doc;state.positions[account.id]={day:plan.day,capturedAt:now.toISOString(),hash:published.doc.content_hash};state.accounts[account.id]='ok';
-   }catch(error){const code=['PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED','PARTIAL_HOLDINGS','HOLDINGS_TIMEOUT'].includes(error.code)?error.code:'POSITION_CAPTURE_FAILED';state.accounts[account.id]=code;if(['PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED'].includes(code))state.blocked[account.id]=code;}
+    const captureResult=(account.captureMode||config.collectionMode)==='extension'?extensionCapture(vault.data.accounts[account.id],now):await capture(home,account,vault.data.accounts[account.id],{channel:config.browserChannel,headless:true,onPinAttempt:async()=>{vault.data.accounts[account.id].pinAttemptPending=true;await vault.save();}});
+    const capturedAt=captureResult.capturedAt?new Date(captureResult.capturedAt):now;
+    const published=await publisher.publish('portfolio.positions',account.id,{positions:captureResult.rows},{},capturedAt);
+    if(previous){const changes=positionChanges(previous,published.doc);if(changes.length)await publisher.publish('portfolio.position_changes',account.id,{changes},{interval_start:previous.captured_at,interval_end:capturedAt.toISOString(),note:'Observed position changes; not verified trades.'},capturedAt);}
+    if(config.legacyCompatibility!==false){const rows=captureResult.rows.map(r=>({groww_slug:r.groww_slug,name:r.name,qty:r.qty,avg_price:r.avg_price,ltp:r.reference_price,current_value:r.reference_value,invested:r.invested}));await publisher.publish('groww.live_holdings',account.id,{holdings:rows},{},capturedAt);}
+    const secret=vault.data.accounts[account.id];if(captureResult.storageState!==undefined)secret.storageState=captureResult.storageState;secret.restore=false;secret.pinAttemptPending=false;
+    previous=published.doc;state.positions[account.id]={day:ist(capturedAt).day,capturedAt:capturedAt.toISOString(),hash:published.doc.content_hash};state.accounts[account.id]='ok';
+   }catch(error){const code=['EXTENSION_NOT_PAIRED','EXTENSION_CAPTURE_REQUIRED','PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED','PARTIAL_HOLDINGS','HOLDINGS_TIMEOUT'].includes(error.code)?error.code:'POSITION_CAPTURE_FAILED';state.accounts[account.id]=code;if(['PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED'].includes(code))state.blocked[account.id]=code;}
   }else state.accounts[account.id]=state.blocked[account.id]||'reused';
   await vault.save();await persist(state);
   if(previous)baselines.push(previous);

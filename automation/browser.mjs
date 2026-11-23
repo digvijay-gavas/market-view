@@ -1,22 +1,8 @@
 import {mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {reusableProfile} from './profiles.mjs';
-export const HOLDINGS_URL='https://groww.in/stocks/user/holdings';
-export function probePage(){
- const text=document.body?.innerText||'',rows=[...document.querySelectorAll('tr[class*="holdingRow_tablerow"]')];
- return {rows:rows.filter(r=>!/Loading/i.test(r.textContent)).length,pending:rows.filter(r=>/Loading/i.test(r.textContent)).length,pin:/Groww PIN|Enter PIN|Forgot Groww PIN/i.test(text),rejected:/incorrect pin|invalid pin|wrong pin/i.test(text),challenge:/captcha|verify.*otp|enter.*otp|verification code|security check/i.test(text),signedOut:/\bLog ?in\b|\bSign ?up\b/i.test(text),empty:/no holdings|don.t have any holding|do not have any holding|start investing/i.test(text),busy:document.querySelectorAll('[class*="loader"],[class*="shimmer"],[class*="skeleton"]').length};
-}
-export function extractHoldings(){
- const rx=/^(.+?)([\d,]+)\s*shares\s*Avg\.\s*₹\s*([\d,]+\.\d+)\s*₹\s*([\d,]+\.\d{2})\s*([-+]?[\d,.]+)\s*\(([-+]?[\d.]+)%\)\s*([-+]?)₹\s*([\d,]+\.\d{2})\s*([-+]?[\d.]+)%\s*₹\s*([\d,]+\.\d{2})\s*₹\s*([\d,]+\.\d{2})/;
- const nodes=[...document.querySelectorAll('tr[class*="holdingRow_tablerow"]')],number=s=>Number(s.replace(/,/g,'')),rows=[];
- for(const node of nodes){const m=node.textContent.replace(/\s+/g,' ').trim().match(rx),a=node.querySelector('a[href*="/stocks/"]');if(!m||!a)return {error:'PARTIAL_HOLDINGS'};
-  const slug=a.getAttribute('href').split('/stocks/')[1].split(/[?#]/)[0];
-  rows.push({groww_slug:slug,name:m[1].trim(),qty:number(m[2]),avg_price:number(m[3]),reference_price:number(m[4]),reference_value:number(m[10]),invested:number(m[11])});
- }
- const expected=(document.body.innerText.match(/HOLDINGS\s*\((\d+)\)/i)||[])[1];
- if(!rows.length||expected!==undefined&&Number(expected)!==rows.length)return {error:'PARTIAL_HOLDINGS'};
- return {rows};
-}
+import {HOLDINGS_URL,probePage,extractHoldings} from '../extension/holdings.js';
+export {HOLDINGS_URL,probePage,extractHoldings};
 export function collectorError(code){const error=new Error(code);error.code=code;return error;}
 export function filterState(state){return {cookies:(state.cookies||[]).filter(c=>/(^|\.)groww\.in$/i.test(c.domain.replace(/^\./,''))),origins:(state.origins||[]).filter(o=>{try{const u=new URL(o.origin);return u.protocol==='https:'&&/(^|\.)groww\.in$/i.test(u.hostname);}catch{return false;}})};}
 export async function openProfile(home,id,options={}){

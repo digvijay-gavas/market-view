@@ -13,9 +13,9 @@ const MAX_BODY=32768;
 const equal=(a,b)=>typeof a==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const assets=new Map([['/',['index.html','text/html; charset=utf-8']],['/app.js',['app.js','text/javascript; charset=utf-8']],['/style.css',['style.css','text/css; charset=utf-8']]]);
 const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Cross-Origin-Resource-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"};
-function bodyJSON(req){return new Promise((resolveBody,reject)=>{
+function bodyJSON(req,limit=MAX_BODY){return new Promise((resolveBody,reject)=>{
  let size=0,chunks=[],failed=false;
- req.on('data',chunk=>{if(failed)return;size+=chunk.length;if(size>MAX_BODY){failed=true;chunks=[];reject(Object.assign(new Error('REQUEST_TOO_LARGE'),{status:413}));}else chunks.push(chunk);});
+ req.on('data',chunk=>{if(failed)return;size+=chunk.length;if(size>limit){failed=true;chunks=[];reject(Object.assign(new Error('REQUEST_TOO_LARGE'),{status:413}));}else chunks.push(chunk);});
  req.on('end',()=>{if(failed)return;try{const data=JSON.parse(Buffer.concat(chunks).toString('utf8'));if(!data||Array.isArray(data)||typeof data!=='object')throw new Error();resolveBody(data);}catch{reject(Object.assign(new Error('INVALID_JSON'),{status:400}));}});
  req.on('error',()=>reject(new Error('REQUEST_FAILED')));
  });}
@@ -27,6 +27,16 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
    const address=server.address();origin='http://127.0.0.1:'+address.port;
    if(req.headers.host!=='127.0.0.1:'+address.port)return send(403,{error:'LOCAL_HOST_REQUIRED'});
    const url=new URL(req.url,origin);
+   if(url.pathname.startsWith('/bridge/')){
+    const extensionOrigin=req.headers.origin,extensionId=req.headers['x-market-extension']||extensionOrigin?.split('://')[1];
+    if(!/^[a-p]{32}$/.test(extensionId||'')||extensionOrigin&&extensionOrigin!=='chrome-extension://'+extensionId)return send(403,{error:'EXTENSION_ORIGIN_REQUIRED'});
+    if(extensionOrigin)res.setHeader('Access-Control-Allow-Origin',extensionOrigin);
+    if(req.method==='OPTIONS'){res.writeHead(204,{...headers,'Access-Control-Allow-Methods':'POST','Access-Control-Allow-Headers':'Content-Type, X-Market-Extension, Authorization','Vary':'Origin'});res.end();return;}
+    if(req.method!=='POST'||req.headers['x-market-extension']!==extensionId||req.headers['content-type']?.split(';')[0]!=='application/json')return send(403,{error:'EXTENSION_ORIGIN_REQUIRED'});
+    if(Number(req.headers['content-length']||0)>1048576)return send(413,{error:'REQUEST_TOO_LARGE'});
+    const action=url.pathname.slice('/bridge/'.length);if(!['pair','confirm','poll','unlock','result','error'].includes(action))return send(404,{error:'NOT_FOUND'});
+    const input=await bodyJSON(req,1048576),token=req.headers.authorization?.replace(/^Bearer /,'');return send(200,await service.bridge.call(action,input,extensionId,token));
+   }
    if(req.method==='GET'&&assets.has(url.pathname)){
     const [file,mime]=assets.get(url.pathname);res.writeHead(200,{...headers,'Content-Type':mime});res.end(await readFile(new URL('admin-ui/'+file,import.meta.url)));return;
    }
@@ -44,9 +54,9 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
    if(req.method==='POST'&&url.pathname==='/api/action'){
     if(req.headers['content-type']?.split(';')[0]!=='application/json')return send(415,{error:'JSON_REQUIRED'});
     if(Number(req.headers['content-length']||0)>MAX_BODY)return send(413,{error:'REQUEST_TOO_LARGE'});
-    const input=await bodyJSON(req),actions={initialize:'initialize',pin:'savePin','add-account':'addAccount',folder:'saveRoot',enroll:'enroll',google:'connectGoogle',confirm:'confirm',cancel:'cancel',start:'startSchedule',pause:'pause',fetch:'fetchNow'};
+    const input=await bodyJSON(req),actions={initialize:'initialize',pin:'savePin','add-account':'addAccount',folder:'saveRoot',enroll:'enroll',google:'connectGoogle',confirm:'confirm',cancel:'cancel',start:'startSchedule',pause:'pause',fetch:'fetchNow','open-account-chrome':'openAccountChrome','pair-extension':'pairExtension','revoke-extension':'revokeExtension','capture-extension':'requestExtensionCapture'};
     if(!Object.hasOwn(actions,input.action))return send(400,{error:'UNKNOWN_ACTION'});
-    const result=await service[actions[input.action]](input);return send(200,{ok:true,job:result?.id?result:undefined});
+    const result=await service[actions[input.action]](input);return send(200,{ok:true,job:result?.id?result:undefined,pairing:result?.code?result:undefined});
    }
    return send(404,{error:'NOT_FOUND'});
   }catch(error){return send(error.status||400,{error:safeCode(error)});}
@@ -69,4 +79,4 @@ export async function startAdmin({home=defaultHome(),port=5186,open=true,openUrl
  let closing=false;const shutdown=async()=>{if(closing)return;closing=true;await app.close();await unlink(instanceFile).catch(()=>{});};
  process.once('SIGINT',shutdown);process.once('SIGTERM',shutdown);return app;
 }
-if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url)startAdmin({open:!process.argv.includes('--no-open')}).catch(error=>{console.error(safeCode(error));process.exitCode=1;});
+if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){const i=process.argv.indexOf('--home');startAdmin({open:!process.argv.includes('--no-open'),...(i>=0?{home:process.argv[i+1]}:{})}).catch(error=>{console.error(safeCode(error));process.exitCode=1;});}

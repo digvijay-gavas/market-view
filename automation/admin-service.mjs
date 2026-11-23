@@ -1,6 +1,6 @@
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {Vault,atomicJSON} from './vault.mjs';
+import {Vault,atomicJSON,REPO} from './vault.mjs';
 import {readJSON,lock,validateConfig,run} from './worker.mjs';
 import {protectHome,googleLogin} from './cli.mjs';
 import {openProfile,waitReady,filterState,HOLDINGS_URL} from './browser.mjs';
@@ -8,6 +8,8 @@ import {accessToken} from './drive.mjs';
 import {DriveReader,folderId} from '../src/drive.js';
 import {installTask,taskInstalled} from './task.mjs';
 import {savedProfiles} from './profiles.mjs';
+import {ExtensionBridge} from './extension-bridge.mjs';
+import {openChromeExtensions} from './normal-chrome.mjs';
 
 export function safeCode(error){const code=error?.code||error?.message;return /^[A-Z][A-Z_]{1,70}$/.test(code||'')?code:'SETUP_OR_RUNTIME_ERROR';}
 function fail(code){throw new Error(code);}
@@ -15,14 +17,19 @@ export class AdminService{
  constructor(home,deps={}){
   this.home=home;this.configPath=join(home,'config.json');this.job=null;this.pending=false;
   this.deps={openVault:(create=false)=>new Vault(home).open(create),lock:()=>lock(home),readJSON,atomicJSON,protectHome,googleLogin,openProfile,waitReady,accessToken,reader:token=>new DriveReader(token),installTask,taskInstalled,run,savedProfiles,...deps};
+  this.bridge=new ExtensionBridge(home,{...this.deps,afterCapture:async()=>{const vault=await this.deps.openVault(),config=await this.configured();if(vault.data.google?.refresh_token&&config.rootId)await this.deps.run(home,{force:true,positionsNow:true});}});
  }
  async status(){
   const config=await this.deps.readJSON(this.configPath,null),state=await this.deps.readJSON(join(this.home,'state.json'),{});
   if(!config)return {initialized:false,accounts:[],job:this.publicJob()};
   const [vault,installed,profiles]=await Promise.all([this.deps.openVault(),this.deps.taskInstalled(),this.deps.savedProfiles()]);
-  return {initialized:true,profiles:profiles.map(({id,label})=>({id,label})),googleConnected:Boolean(vault.data.google?.refresh_token),googleClientSaved:Boolean(vault.data.desktopClient),rootId:config.rootId,enabled:config.enabled,taskInstalled:installed,schedule:config.schedule,lastRunAt:state.lastRunAt||null,nextRunAt:state.nextRunAt||null,lastError:state.lastError?.code||null,accounts:config.accounts.map(a=>({id:a.id,profileId:a.profileDirectory?profiles.find(p=>p.path===a.profileDirectory)?.id||'unavailable':'dedicated',suggestedProfile:a.legacyProfileHint,pinSaved:Boolean(vault.data.accounts[a.id]?.pin),enrolled:Boolean(vault.data.accounts[a.id]?.bound),blocked:state.blocked?.[a.id]||(vault.data.accounts[a.id]?.pinAttemptPending?'PIN_CHECK_REQUIRED':null),lastPosition:state.positions?.[a.id]?.capturedAt||null})),job:this.publicJob()};
+  return {initialized:true,extensionFolder:join(REPO,'extension'),profiles:profiles.map(({id,label})=>({id,label})),googleConnected:Boolean(vault.data.google?.refresh_token),googleClientSaved:Boolean(vault.data.desktopClient),rootId:config.rootId,enabled:config.enabled,taskInstalled:installed,schedule:config.schedule,lastRunAt:state.lastRunAt||null,nextRunAt:state.nextRunAt||null,lastError:state.lastError?.code||null,accounts:config.accounts.map(a=>({id:a.id,profileId:a.profileDirectory?profiles.find(p=>p.path===a.profileDirectory)?.id||'unavailable':'dedicated',suggestedProfile:a.legacyProfileHint,pairingPending:this.bridge.pending(a.id),extensionPaired:Boolean(vault.data.accounts[a.id]?.extension?.confirmed),extensionCapturedAt:vault.data.accounts[a.id]?.extension?.capture?.capturedAt||null,extensionError:vault.data.accounts[a.id]?.extension?.lastError||null,pinSaved:Boolean(vault.data.accounts[a.id]?.pin),enrolled:Boolean(vault.data.accounts[a.id]?.bound),blocked:state.blocked?.[a.id]||(vault.data.accounts[a.id]?.pinAttemptPending?'PIN_CHECK_REQUIRED':null),lastPosition:state.positions?.[a.id]?.capturedAt||null})),job:this.publicJob()};
  }
  publicJob(){if(!this.job)return null;const {id,type,account,phase,error}=this.job;return {id,type,account,phase,error};}
+ pairExtension(input){return this.bridge.createPair(input);}
+ revokeExtension(input){return this.bridge.revoke(input);}
+ requestExtensionCapture(input){return this.bridge.requestCapture(input);}
+ async openAccountChrome({account}){const config=await this.configured(),entry=this.account(config,account);await openChromeExtensions(entry.legacyProfileHint);}
  async exclusive(fn){
   if(this.pending||this.job&&['running','signin','confirm'].includes(this.job.phase))fail('ADMIN_BUSY');this.pending=true;
   let release;try{release=await this.deps.lock();if(!release)fail('COLLECTOR_BUSY');return await fn();}finally{this.pending=false;await release?.();}
@@ -33,7 +40,7 @@ export class AdminService{
   return this.exclusive(async()=>{
    if(await this.deps.readJSON(this.configPath,null))fail('CONFIG_ALREADY_EXISTS');
    if(!/^[a-z0-9_-]{1,40}$/.test(account))fail('INVALID_ACCOUNT');await this.deps.protectHome(this.home);
-   const config=validateConfig({version:1,enabled:false,rootId:rootId?folderId(rootId):'',accounts:[{id:account,enabled:true}],schedule:{open:'09:15',close:'15:30',intervalSeconds:600,jitterSeconds:60},priceProvider:'groww-public',browserChannel:'chrome',legacyCompatibility:true});
+   const config=validateConfig({version:1,enabled:false,collectionMode:'extension',rootId:rootId?folderId(rootId):'',accounts:[{id:account,enabled:true}],schedule:{open:'09:15',close:'15:30',intervalSeconds:600,jitterSeconds:60},priceProvider:'groww-public',browserChannel:'chrome',legacyCompatibility:true});
    const vault=await this.deps.openVault(true);await vault.save();await this.deps.atomicJSON(this.configPath,config);
   });
  }
@@ -86,9 +93,9 @@ export class AdminService{
   if(!config.rootId){const stores=await this.deps.reader(token).findStores();if(stores.length!==1)fail('SET_EXACT_ROOT_ID_IN_CONFIG');config.rootId=stores[0].id;}
   const root=await this.deps.reader(token).get('/files/'+encodeURIComponent(config.rootId),{fields:'id,mimeType,trashed,capabilities(canAddChildren)',supportsAllDrives:'true'});
   if(root.trashed||root.mimeType!=='application/vnd.google-apps.folder'||root.capabilities?.canAddChildren!==true)fail('FOLDER_EDITOR_REQUIRED');
-  await this.deps.installTask(this.home);config.enabled=true;await this.deps.atomicJSON(this.configPath,config);
+  await this.deps.installTask(this.home);config.collectionMode='extension';config.enabled=true;await this.deps.atomicJSON(this.configPath,config);
  });}
  async pause(){return this.exclusive(async()=>{const config=await this.configured();config.enabled=false;await this.deps.atomicJSON(this.configPath,config);});}
- fetchNow(){return this.startJob('fetch',null,async()=>{const result=await this.deps.run(this.home,{force:true,positionsNow:true});if(!result.ran)fail(result.reason||'COLLECTOR_BUSY');});}
+ fetchNow(){return this.startJob('fetch',null,async()=>{await this.bridge.activateMode();const result=await this.deps.run(this.home,{force:true,positionsNow:true});if(!result.ran)fail(result.reason||'COLLECTOR_BUSY');});}
  async close(){if(this.job&&['running','signin','confirm'].includes(this.job.phase)&&this.job.type!=='fetch'){await this.cancel({id:this.job.id});await this.job.done;}}
 }
