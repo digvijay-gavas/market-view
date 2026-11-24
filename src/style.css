@@ -210,3 +210,5 @@
 @media (max-width:360px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.seg button{padding:3px 7px}.live-row{gap:4px}}
 .status-row{margin-bottom:12px}.status-row .status{padding:10px 0 0;min-height:0}
 @media (max-width:640px){.status-row{gap:2px 12px}.status-row .status{font-size:12px}.live-status{padding-top:2px;text-align:left}}
+/* Shown only by scripts/dev-local.mjs */
+.dev-banner{margin:0;padding:4px 12px;background:#5a3d00;color:#ffd98a;font-size:11px;text-align:center;letter-spacing:.02em}

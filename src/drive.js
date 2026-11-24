@@ -6,6 +6,14 @@ const API='https://www.googleapis.com/drive/v3';
 const FOLDER='application/vnd.google-apps.folder';
 const escapeQuery=s=>s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
 const idPattern=/^[A-Za-z0-9_-]+$/;
+const SIGNATURE_CONCURRENCY=6;
+// Like Promise.all(items.map(fn)) with at most `limit` calls in flight; results keep input order.
+export async function mapLimit(items,limit,fn){
+  const results=new Array(items.length);let next=0;
+  const worker=async()=>{while(next<items.length){const i=next++;results[i]=await fn(items[i],i);}};
+  await Promise.all(Array.from({length:Math.min(limit,items.length)},worker));
+  return results;
+}
 export function folderId(input) {
   const value=input.trim();
   if(idPattern.test(value)) return value;
@@ -67,17 +75,20 @@ export class DriveReader {
     const names=['_schema','groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents','portfolio.positions','market.prices'];
     const folders=(await this.children([rootId])).filter(f=>f.mimeType===FOLDER&&names.includes(f.name));
     const manifest=folders.map(f=>['folder',f.name,f.id]);let trustworthy=true;
-    for(const dataset of names){
-      const ids=folders.filter(f=>f.name===dataset).map(f=>f.id);if(!ids.length)continue;
-      const children=await this.children(ids);
+    // Listings are independent, so run a few at a time (was ~30 sequential calls on every load).
+    const datasets=await mapLimit(names.filter(dataset=>folders.some(f=>f.name===dataset)),SIGNATURE_CONCURRENCY,async dataset=>({dataset,children:await this.children(folders.filter(f=>f.name===dataset).map(f=>f.id))}));
+    const partitionLists=[];
+    for(const {dataset,children} of datasets){
       if(dataset==='_schema'){
         for(const f of children.filter(f=>f.name==='catalog.json')){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,f.id,f.name,revision]);}
       }else{
         const partitions=children.filter(f=>f.mimeType===FOLDER&&/^[A-Za-z0-9_-]+$/.test(f.name)&&(dataset!=='smallcase.constituents'||isBmPartition(f.name)));
         const groups=new Map();for(const f of partitions){manifest.push(['partition',dataset,f.name,f.id]);const group=groups.get(f.name)||[];group.push(f.id);groups.set(f.name,group);}
-        for(const [partition,parents] of groups)for(const f of (await this.children(parents)).filter(f=>SNAPSHOT.test(f.name))){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,partition,f.id,f.name,revision]);}
+        for(const [partition,parents] of groups)partitionLists.push({dataset,partition,parents});
       }
     }
+    for(const {dataset,partition,files} of await mapLimit(partitionLists,SIGNATURE_CONCURRENCY,async item=>({...item,files:await this.children(item.parents)})))
+      for(const f of files.filter(f=>SNAPSHOT.test(f.name))){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,partition,f.id,f.name,revision]);}
     if(!trustworthy)return null;
     const canonical=manifest.map(row=>JSON.stringify(row)).sort();
     const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([rootId,canonical])));

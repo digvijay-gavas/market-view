@@ -9,7 +9,8 @@
     "dev": "node scripts/serve.mjs",
     "test:preview": "node scripts/fixture-server.mjs",
     "collector": "node automation/cli.mjs",
-    "admin": "node automation/admin.mjs"
+    "admin": "node automation/admin.mjs",
+    "dev:local": "node scripts/dev-local.mjs"
   },
   "engines": {
     "node": ">=22"
