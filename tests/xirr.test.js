@@ -22,7 +22,7 @@ test('open holdings XIRR uses reconciled dated lots and captured valuation date'
 test('unmatched names, missing dates and quantity/cost mismatches leave a holding out; an uncovered account is reported',()=>{
  assert.equal(openHoldingsXirr([capture],[]).rate,null);
  const partial=openHoldingsXirr([capture,{...capture,partition:'two'}],[report]);assert.ok(Math.abs(partial.rate-.1)<1e-10);assert.deepEqual(partial.coverage,{included:1,total:2,costShare:.5});assert.match(partial.excluded[0].reason,/no dated P&L report/);
- for(const change of [{stock_name:'Different company'},{buy_date:null},{quantity:9},{buy_value:90},{buy_date:'2026-02-01'}]){
+ for(const change of [{stock_name:'Different company'},{buy_date:null},{quantity:9},{buy_date:'2026-02-01'}]){
   const bad={...report,tables:{open_lots:[{...report.tables.open_lots[0],...change}]}};
   assert.equal(openHoldingsXirr([capture],[bad]).rate,null);
  }
@@ -58,9 +58,12 @@ test('one unmatched holding is left out and reported instead of blanking XIRR',a
  const mostlyMissing=calc([{...snap,tables:{holdings:[holdings[0],{...holdings[1],invested:5000}]}}],[{partition:'one',as_of:'2026-05-01',captured_at:'2026-05-01T00:00:00Z',tables:{open_lots:lots}}]);
  assert.equal(mostlyMissing.rate,null);assert.match(mostlyMissing.reason,/Only 17% of cost/);
 });
-test('lot cost rounding of a few rupees is accepted; a real cost gap with matching shares is explained',()=>{
+test('lot cost rounding of a few rupees is accepted; a real cost gap with matching shares uses the holding cost',()=>{
  const big={...capture,tables:{holdings:[{name:'Synthetic Alpha',qty:10,invested:87609.76,current_value:90000}]}};
  const lots=cost=>({...report,tables:{open_lots:[{...report.tables.open_lots[0],buy_value:cost}]}});
- assert.equal(openHoldingsXirr([big],[lots(87607.26)]).coverage.included,1);  // ₹2.50 rounding
- const gap=openHoldingsXirr([big],[lots(80000)]);assert.equal(gap.coverage.included,0);assert.match(gap.excluded[0].reason,/shares match \(10\).*bonus, split/);
+ const rounding=openHoldingsXirr([big],[lots(87607.26)]);assert.equal(rounding.coverage.included,1);assert.deepEqual(rounding.adjusted,[]);
+ // Shares credited into Groww (grey market / transfer): the report shows a market price, the holding the real cost.
+ const gap=openHoldingsXirr([big],[lots(50000)]),asHolding=openHoldingsXirr([big],[lots(87609.76)]);
+ assert.equal(gap.coverage.included,1);assert.deepEqual(gap.adjusted,[{account:'one',name:'Synthetic Alpha',lotCost:50000,invested:87609.76}]);
+ assert.ok(Math.abs(gap.rate-asHolding.rate)<1e-12,'same return as if the lots carried the holding cost');
 });

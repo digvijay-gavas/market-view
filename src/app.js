@@ -210,6 +210,7 @@ function render() {
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
   for(const x of p.xirrExcluded||[])warnings.push(`XIRR leaves out ${x.name} (${x.account}): ${x.reason}.`);
+  for(const x of p.xirrAdjusted||[])warnings.push(`XIRR uses Groww's invested ${money(x.invested)} for ${x.name} (${x.account}); its P&L lots say ${money(x.lotCost)} (shares credited into Groww, e.g. grey-market or transfer). Lot dates are kept.`);
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
   $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts.`;

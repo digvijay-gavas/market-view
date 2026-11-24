@@ -24,7 +24,7 @@ export const MIN_COVERAGE=0.5;
 // (corporate actions, missed trades) are far larger.
 export const costTolerance=invested=>Math.max(5,Math.abs(invested)*0.001);
 export function openHoldingsXirr(snapshots,reports=[]){
- const excluded=[],missing=reason=>({rate:null,reason,excluded,coverage:null});
+ const excluded=[],adjusted=[],missing=reason=>({rate:null,reason,excluded,adjusted,coverage:null});
  if(!snapshots.length)return missing('No holdings to calculate.');
  const dates=new Set(snapshots.map(s=>s.as_of));if(dates.size!==1||day(snapshots[0].as_of)===null)return missing('Holdings need a common valuation date.');
  const date=snapshots[0].as_of,terminal=day(date),flows=[];let value=0,included=0,total=0,costIncluded=0,costTotal=0;
@@ -44,10 +44,14 @@ export function openHoldingsXirr(snapshots,reports=[]){
    if(!number(holding.qty)||!number(holding.invested)||lots.some(l=>!number(l.quantity)||l.quantity<=0||!number(l.buy_value)||l.buy_value<0||day(l.buy_date)===null||day(l.buy_date)>terminal)){skip('purchase lots are incomplete or undated');continue;}
    const quantity=lots.reduce((sum,l)=>sum+l.quantity,0),cost=lots.reduce((sum,l)=>sum+l.buy_value,0);
    if(Math.abs(quantity-holding.qty)>1e-6){skip(`P&L lots (${quantity} shares) differ from current holding (${holding.qty} shares); the report is likely older than a recent buy or sell`);continue;}
-   if(Math.abs(cost-holding.invested)>costTolerance(holding.invested)){skip(`shares match (${quantity}) but P&L lot cost ₹${cost.toFixed(2)} differs from invested ₹${holding.invested.toFixed(2)}; possibly a bonus, split or cost adjustment`);continue;}
+   // Same shares, different cost: shares credited into Groww (grey-market/off-market transfers, allotments)
+   // carry the cost the owner entered on the holding, while the P&L report shows a market price for that
+   // day. The holding's invested amount is the true cost: keep the lot dates, scale the amounts to it.
+   const scale=Math.abs(cost-holding.invested)>costTolerance(holding.invested)&&cost>0&&holding.invested>0?holding.invested/cost:1;
+   if(scale!==1)adjusted.push({account:snapshot.partition,name:holding.name,lotCost:cost,invested:holding.invested});
    const current=number(holding.current_value)?holding.current_value:number(holding.ltp)?holding.qty*holding.ltp:null;
    if(!number(current)){skip('current value missing');continue;}
-   value+=current;included++;costIncluded+=holding.invested;for(const lot of lots)flows.push({date:lot.buy_date,amount:-lot.buy_value});
+   value+=current;included++;costIncluded+=holding.invested;for(const lot of lots)flows.push({date:lot.buy_date,amount:-lot.buy_value*scale});
   }
  }
  const coverage={included,total,costShare:costTotal>0?costIncluded/costTotal:0};
@@ -55,5 +59,5 @@ export function openHoldingsXirr(snapshots,reports=[]){
  if(coverage.costShare<MIN_COVERAGE)return {...missing(`Only ${Math.round(coverage.costShare*100)}% of cost has matching purchase lots; refresh the P&L reports.`),coverage};
  flows.push({date,amount:value});const rate=xirr(flows);
  const basis='Annualised from dated purchases to saved value; excludes sold holdings and dividends.';
- return {rate,excluded,coverage,reason:rate===null?'No supported annualised return for these cash flows.':excluded.length?`${basis} Covers ${included} of ${total} holdings (${Math.round(coverage.costShare*100)}% of cost).`:basis};
+ return {rate,excluded,adjusted,coverage,reason:rate===null?'No supported annualised return for these cash flows.':excluded.length?`${basis} Covers ${included} of ${total} holdings (${Math.round(coverage.costShare*100)}% of cost).`:basis};
 }
