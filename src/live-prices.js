@@ -3,10 +3,10 @@
 // Timed refresh is opt-in, pauses while the tab is hidden, stops outside market hours,
 // and falls back to on-demand after a fixed number of fetches so Groww is not polled forever.
 export const LIVE_MODES=Object.freeze([
- {id:'demand',label:'On demand'},
- {id:'10s',label:'Every 10 sec',interval:10000,max:30},
- {id:'1m',label:'Every 1 min',interval:60000,max:30},
- {id:'10m',label:'Every 10 min',interval:600000,max:12},
+ {id:'demand',label:'On demand',short:'Manual'},
+ {id:'10s',label:'Every 10 sec',short:'10s',interval:10000,max:30},
+ {id:'1m',label:'Every 1 min',short:'1m',interval:60000,max:30},
+ {id:'10m',label:'Every 10 min',short:'10m',interval:600000,max:12},
 ]);
 const num=x=>typeof x==='number'&&Number.isFinite(x);
 const SLUG=/^[a-z0-9][a-z0-9_-]{0,119}$/;
@@ -41,7 +41,7 @@ export class LivePrices{
   const mode=LIVE_MODES.find(m=>m.id===id);if(!mode)return;
   this.clearTimer(this.timer);this.timer=null;this.mode=id;this.count=0;this.note='';
   if(mode.interval){
-   if(!this.marketOpen(this.now())){this.toDemand('Market is closed, so timed refresh is off.');return;}
+   if(!this.marketOpen(this.now())){this.toDemand('Market closed');return;}
    this.tick();
   }else this.notify();
  }
@@ -49,13 +49,13 @@ export class LivePrices{
  schedule(){const m=this.modeInfo;if(m.interval)this.timer=this.setTimer(()=>this.tick(),m.interval);}
  async tick(){
   this.timer=null;const m=this.modeInfo;if(!m.interval)return;
-  if(!this.marketOpen(this.now())){this.toDemand('Market closed. Timed refresh stopped.');return;}
+  if(!this.marketOpen(this.now())){this.toDemand('Market closed');return;}
   // A hidden tab does not use up the fetch allowance; it just waits for the next slot.
   if(!this.visible()){this.schedule();return;}
   const ok=await this.fetchNow();if(this.mode!==m.id)return;
   this.count++;
-  if(this.retryAfter){this.toDemand('Price source asked us to slow down. Switched to on demand.');return;}
-  if(this.count>=m.max){this.toDemand(`Stopped after ${m.max} refreshes. Switched to on demand.`);return;}
+  if(this.retryAfter){this.toDemand('Source busy, back to manual');return;}
+  if(this.count>=m.max){this.toDemand(`Auto-stopped after ${m.max}`);return;}
   this.notify();this.schedule();
  }
  async fetchNow(){
@@ -73,9 +73,9 @@ export class LivePrices{
     if(body.retryAfter){this.retryAfter=body.retryAfter;break;}
    }
    if(fresh){this.version++;this.lastAt=this.now().toISOString();}
-   if(failed)this.error=`${failed} price${failed===1?'':'s'} unavailable; saved prices used for those.`;
+   if(failed)this.error=`${failed} price${failed===1?'':'s'} unavailable`;
    return fresh>0;
-  }catch(error){this.error=error.message||'Could not fetch live prices.';return false;}
+  }catch(error){this.error='Price fetch failed';return false;}
   finally{this.busy=false;this.notify();}
  }
  stop(){this.clearTimer(this.timer);this.timer=null;this.mode='demand';this.count=0;}

@@ -54,14 +54,14 @@ test('on demand fetches once and never schedules',async()=>{
 test('timed refresh stops after its allowance and switches to on demand',async()=>{
  const c=controller();c.live.setMode('10s');await new Promise(r=>setImmediate(r));
  for(let i=0;i<29;i++){assert.equal(c.timers[0].ms,10000);await c.fire();}
- assert.equal(c.requests.length,30);assert.equal(c.live.mode,'demand');assert.equal(c.timers.length,0);assert.match(c.live.note,/Stopped after 30/);
+ assert.equal(c.requests.length,30);assert.equal(c.live.mode,'demand');assert.equal(c.timers.length,0);assert.match(c.live.note,/Auto-stopped after 30/);
 });
 test('timed refresh waits while hidden, refuses outside market hours and backs off when throttled',async()=>{
  let visible=false;const hidden=controller({visible:()=>visible});hidden.live.setMode('1m');await new Promise(r=>setImmediate(r));
  assert.equal(hidden.requests.length,0);assert.equal(hidden.live.remaining,30);visible=true;await hidden.fire();assert.equal(hidden.requests.length,1);
  const closed=controller({marketOpen:()=>false});closed.live.setMode('10m');assert.equal(closed.live.mode,'demand');assert.equal(closed.requests.length,0);
  const throttled=controller({fetcher:async()=>Response.json({quotes:[],failures:['abc'],retryAfter:600})});throttled.live.setMode('10s');await new Promise(r=>setImmediate(r));
- assert.equal(throttled.live.mode,'demand');assert.match(throttled.live.note,/slow down/);
+ assert.equal(throttled.live.mode,'demand');assert.match(throttled.live.note,/Source busy/);
 });
 test('without a relay URL live prices stay off',async()=>{
  const c=controller({endpoint:''});assert.equal(c.live.enabled,false);assert.equal(await c.live.fetchNow(),false);assert.equal(c.requests.length,0);

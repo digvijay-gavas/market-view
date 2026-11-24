@@ -136,5 +136,29 @@
  .app-loaded .overview-note{max-height:none}.app-loaded .about-card{height:auto}
 }
 
-.live-prices{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px}.live-prices label{font-size:12px;color:var(--muted)}.live-prices select,.live-prices button{min-height:36px;padding:6px 12px;font-size:13px}.live-prices .fine{margin:0;flex:1 1 220px}
-@media (max-width:640px){.live-prices select,.live-prices button{flex:1 1 auto}}
+/* Live prices: segmented refresh toggle + icon button in the top bar, with a one-line age summary. */
+.live-bar{display:flex;flex-direction:column;align-items:flex-end;gap:3px;margin-left:auto;min-width:0}
+.live-bar+#disconnect{margin-left:0}
+.live-row{display:flex;align-items:center;gap:6px}
+.seg{display:inline-flex;border:1px solid #485252;border-radius:999px;padding:2px;background:#15191b}
+.seg button{min-height:28px;padding:3px 11px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:12px;font-weight:550;line-height:1}
+.seg button:hover{background:#283330;color:var(--text)}
+.seg button[aria-checked="true"]{background:var(--accent);color:#102b20}
+.seg button:disabled{cursor:not-allowed}
+.icon-btn{display:inline-grid;place-items:center;width:34px;min-height:34px;height:34px;padding:0;border-radius:999px}
+.icon-btn.spinning svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.icon-btn.spinning svg{animation:none}}
+.live-status{margin:0;font-size:11px;line-height:1.3;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.live-status.error{color:var(--red)}
+@media (max-width:640px){
+ .topbar{flex-wrap:nowrap;gap:8px}
+ .brand span{display:none}
+ .seg button{padding:3px 8px;font-size:11px;min-height:26px}
+ .icon-btn{width:30px;height:30px;min-height:30px}
+ .live-status{font-size:10px}
+ #disconnect{padding:4px 8px;font-size:10px;min-height:28px}
+}
+.topbar .brand{flex:none}
+@media (max-width:360px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.seg button{padding:3px 6px}.live-row{gap:4px}#disconnect{padding:4px 6px}}
+@media (max-width:640px){.live-status{white-space:normal;overflow:visible}}

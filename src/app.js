@@ -26,21 +26,34 @@ const live=new LivePrices({endpoint:PRICE_PROXY_URL,slugs:()=>store?holdingSlugs
 let liveView={source:null,version:-1,snapshots:null},liveRendered=0;
 // Live quotes overlay the loaded snapshots in memory only; store (and the Drive/browser caches) keep saved prices.
 function liveSnapshots(){if(!store||!live.quotes.size)return null;if(liveView.source!==store.snapshots||liveView.version!==live.version)liveView={source:store.snapshots,version:live.version,snapshots:applyQuotes(store.snapshots,live.quotes)};return liveView.snapshots;}
-function renderLive(){
- $('live-mode').value=live.mode;$('live-mode').disabled=!live.enabled;$('live-fetch').disabled=!live.enabled||live.busy||!store;
- $('live-fetch').textContent=live.busy?'Fetching…':'Fetch prices now';
- const parts=[];
- if(!live.enabled)parts.push('Live prices are not configured for this site.');
- else{if(live.lastAt)parts.push('Live prices '+new Date(live.lastAt).toLocaleTimeString('en-IN',{timeStyle:'short'}));else parts.push('Showing saved prices.');
-  if(live.remaining!=null)parts.push(live.remaining+' refresh'+(live.remaining===1?'':'es')+' left');
-  if(live.note)parts.push(live.note);if(live.error)parts.push(live.error);}
+const ago=at=>{const s=Math.max(0,(Date.now()-Date.parse(at))/1000);return s<60?'just now':s<3600?Math.floor(s/60)+'m ago':s<86400?Math.floor(s/3600)+'h ago':Math.floor(s/86400)+'d ago';};
+// One compact line replaces the long freshness sentence: how old prices and positions are.
+function freshnessTimes(){
+ if(!store)return {};const selected=selectedSnapshots(),progressive=(store.progressiveSources||[]).filter(s=>selected.some(a=>a.partition===s.account));
+ const positions=progressive.map(s=>s.positionsAt).concat(selected.filter(s=>!progressive.some(p=>p.account===s.partition)).map(s=>s.captured_at||s.confirmedAt)).filter(Boolean).sort()[0];
+ const saved=progressive.map(s=>s.pricesFrom).filter(Boolean).sort()[0]||positions;
+ return {positions,prices:live.lastAt&&live.quotes.size?live.lastAt:saved,livePrices:Boolean(live.lastAt&&live.quotes.size)};
+}
+function renderAgo(){
+ const t=freshnessTimes(),parts=[];
+ if(t.prices)parts.push((t.livePrices?'Live prices ':'Prices ')+ago(t.prices));
+ if(t.positions)parts.push('Positions '+ago(t.positions));
+ if(live.remaining!=null)parts.push(live.remaining+' left');
+ if(live.note)parts.push(live.note);if(live.error)parts.push(live.error);
+ if(!live.enabled)parts.push('Live prices off');
  $('live-status').textContent=parts.join(' · ');$('live-status').classList.toggle('error',Boolean(live.error));
+ $('live-status').title=[t.prices&&'Prices: '+stamp(t.prices)+(t.livePrices?' (live overlay, not saved)':''),t.positions&&'Positions: '+stamp(t.positions)].filter(Boolean).join('\n');
+}
+function renderLive(){
+ for(const b of $('live-mode').children){b.setAttribute('aria-checked',String(b.dataset.mode===live.mode));b.disabled=!live.enabled;}
+ $('live-fetch').disabled=!live.enabled||live.busy||!store;$('live-fetch').classList.toggle('spinning',live.busy);
+ renderAgo();
  if(liveRendered!==live.version){liveRendered=live.version;render();}
 }
 function clearData() {
   $('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');
   bmFilter='all';cloudCache=null;cacheSavedAt=null;cacheMessage='';$('cache-state').textContent='';
-  generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();
+  generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();$('live-bar').hidden=true;$('topbar-pill').hidden=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
   for(const id of ['source-pages','warning-pages','allocation-pages','data-alert','overview-detail'])$(id).replaceChildren();
@@ -163,8 +176,8 @@ async function findFolders(openUnique=false){
 $('find-folders').addEventListener('click',()=>findFolders());
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
 $('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot,true);});
-$('live-mode').replaceChildren(...LIVE_MODES.map(m=>{const o=text('option',m.label);o.value=m.id;return o;}));
-$('live-mode').addEventListener('change',()=>live.setMode($('live-mode').value));
+$('live-mode').replaceChildren(...LIVE_MODES.map(m=>{const b=text('button',m.short);b.type='button';b.dataset.mode=m.id;b.setAttribute('role','radio');b.title=m.label+(m.max?` (stops after ${m.max})`:'');b.addEventListener('click',()=>live.setMode(m.id));return b;}));
+setInterval(()=>{if(store)renderAgo();},30000);
 $('live-fetch').addEventListener('click',()=>live.fetchNow());
 renderLive();
 $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
@@ -183,18 +196,16 @@ function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
   const selected=selectedSnapshots();
   const dates=[...new Set(selected.map(s=>s.as_of||'unknown'))].sort();
-  const progressive=(store.progressiveSources||[]).filter(s=>selected.some(a=>a.partition===s.account));
-  $('freshness').textContent=selected.length?`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`:'No accounts selected';
-  if(progressive.length){const basis=progressive.map(s=>s.positionsAt).sort();const quotes=progressive.map(s=>s.pricesFrom).filter(Boolean).sort();$('freshness').textContent='Positions reconciled: '+stamp(basis[0])+' · Prices fetched: '+(quotes.length?stamp(quotes[0]):'using reconciliation prices')+' · Not exchange real-time';}
-  if(live.lastAt&&live.quotes.size)$('freshness').textContent+=' · Live prices '+stamp(live.lastAt)+' (overlay, not saved)';
-  $('live-fetch').disabled=!live.enabled||live.busy;
+  // Price and position age now live in the top bar; only the empty-selection hint stays here.
+  $('freshness').textContent=selected.length?'':'No accounts selected';$('freshness').hidden=Boolean(selected.length);
+  $('live-bar').hidden=false;$('topbar-pill').hidden=true;renderLive();
   const warnings=[...store.warnings];
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
-  $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts. Prices saved as of ${dates.join(' · ')}.`;
+  $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts.`;
   $('stats').replaceChildren();
   const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?'Annualised · excludes sales/dividends':p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){

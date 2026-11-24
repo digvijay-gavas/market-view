@@ -11,7 +11,7 @@
   <script type="module" src="./src/app.js"></script>
 </head>
 <body>
-  <header class="topbar"><a class="brand" href="./">M<span>Market</span></a><span class="pill">SAVED DRIVE SNAPSHOTS</span><button id="disconnect" hidden>Disconnect</button></header>
+  <header class="topbar"><a class="brand" href="./">M<span>Market</span></a><span id="topbar-pill" class="pill">SAVED DRIVE SNAPSHOTS</span><div id="live-bar" class="live-bar" hidden><div class="live-row"><div id="live-mode" class="seg" role="radiogroup" aria-label="Live price refresh"></div><button id="live-fetch" class="icon-btn" type="button" aria-label="Fetch prices now" title="Fetch prices now"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button></div><p id="live-status" class="live-status" role="status" aria-live="polite"></p></div><button id="disconnect" hidden>Disconnect</button></header>
   <main>
     <section class="intro" id="intro"><p class="eyebrow">YOUR INVESTMENTS, IN PERSPECTIVE</p><h1>A clear view of<br>what you hold.</h1><p class="muted">A private view of your saved portfolio. Read directly from Google Drive, calculated in your browser.</p></section>
     <section id="unlock-panel" class="card connection" hidden aria-labelledby="unlock-heading"><div><p class="eyebrow">UNLOCK THIS APP</p><h2 id="unlock-heading">Enter your app PIN.</h2><p class="fine">This convenience lock unlocks the public Google client configuration. Google sign-in and Drive permissions protect your portfolio.</p></div><div class="connect-form"><label for="app-pin">App PIN</label><input id="app-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="12"><p></p><button id="unlock" class="primary">Continue</button></div></section>
@@ -31,7 +31,6 @@
         <button id="tab-data" role="tab" aria-selected="false" aria-controls="view-data" tabindex="-1">Data</button>
         <button id="tab-about" role="tab" aria-selected="false" aria-controls="view-about" tabindex="-1">About</button>
       </nav>
-      <div class="live-prices"><label for="live-mode">Live prices</label><select id="live-mode"></select><button id="live-fetch" type="button">Fetch prices now</button><span id="live-status" class="fine" role="status" aria-live="polite"></span></div>
       <p id="cache-state" class="cache-state" role="status" aria-live="polite"></p>
       <p id="data-alert" class="data-alert" hidden></p>
       <section id="view-overview" class="view-panel" role="tabpanel" aria-labelledby="tab-overview">
