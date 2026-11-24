@@ -29,7 +29,7 @@ export function applyQuotes(snapshots,quotes){
 }
 
 export class LivePrices{
- constructor({endpoint,slugs,onChange=()=>{},fetcher=(...a)=>globalThis.fetch(...a),now=()=>new Date(),setTimer=globalThis.setTimeout.bind(globalThis),clearTimer=globalThis.clearTimeout.bind(globalThis),visible=()=>globalThis.document?.visibilityState!=='hidden',marketOpen=marketHours,chunk=100}){
+ constructor({endpoint,slugs,onChange=()=>{},fetcher=(...a)=>globalThis.fetch(...a),now=()=>new Date(),setTimer=globalThis.setTimeout.bind(globalThis),clearTimer=globalThis.clearTimeout.bind(globalThis),visible=()=>globalThis.document?.visibilityState!=='hidden',marketOpen=marketHours,chunk=8}){
   Object.assign(this,{endpoint:String(endpoint||'').replace(/\/+$/,''),slugs,onChange,fetcher,now,setTimer,clearTimer,visible,marketOpen,chunk});
   this.mode='demand';this.quotes=new Map();this.version=0;this.count=0;this.busy=false;this.lastAt=null;this.note='';this.error='';this.timer=null;
  }
@@ -64,13 +64,19 @@ export class LivePrices{
   this.busy=true;this.error='';this.retryAfter=0;this.notify();
   let fresh=0,failed=0;
   try{
-   for(let i=0;i<slugs.length;i+=this.chunk){
-    const response=await this.fetcher(this.endpoint+'/quotes?slugs='+encodeURIComponent(slugs.slice(i,i+this.chunk).join(',')),{credentials:'omit',cache:'no-store'});
+   // Small batches: the relay handles only a few slugs per call and returns the rest as `deferred`.
+   const queue=[...slugs];
+   while(queue.length){
+    const batch=queue.splice(0,this.chunk);
+    const response=await this.fetcher(this.endpoint+'/quotes?slugs='+encodeURIComponent(batch.join(',')),{credentials:'omit',cache:'no-store'});
     if(!response.ok)throw new Error('Price relay returned '+response.status+'.');
     const body=await response.json();
     for(const q of body.quotes||[])if(typeof q?.groww_slug==='string'&&num(q.ltp)&&q.ltp>0){this.quotes.set(q.groww_slug,q);fresh++;}
     failed+=(body.failures||[]).length;
-    if(body.retryAfter){this.retryAfter=body.retryAfter;break;}
+    if(body.retryAfter){this.retryAfter=body.retryAfter;failed+=queue.length+(body.deferred||[]).length;break;}
+    const deferred=(body.deferred||[]).filter(s=>batch.includes(s));
+    if(deferred.length===batch.length){failed+=deferred.length+queue.length;break;}  // no progress: stop, don't loop
+    queue.unshift(...deferred);
    }
    if(fresh){this.version++;this.lastAt=this.now().toISOString();}
    if(failed)this.error=`${failed} price${failed===1?'':'s'} unavailable`;

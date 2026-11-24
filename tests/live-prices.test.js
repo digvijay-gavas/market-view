@@ -66,3 +66,17 @@ test('timed refresh waits while hidden, refuses outside market hours and backs o
 test('without a relay URL live prices stay off',async()=>{
  const c=controller({endpoint:''});assert.equal(c.live.enabled,false);assert.equal(await c.live.fetchNow(),false);assert.equal(c.requests.length,0);
 });
+
+test('relay handles at most 8 slugs per call and defers the rest',async()=>{
+ const calls=[],slugs=Array.from({length:20},(_,i)=>'s'+i),body=await (await handle(req('/quotes?slugs='+slugs.join(',')),{},{cache:null,fetcher:groww(calls)})).json();
+ assert.equal(body.quotes.length,8);assert.deepEqual(body.deferred,slugs.slice(8));assert.equal(body.failures.length,0);assert.equal(calls.length,16);
+});
+test('viewer sends batches of 8 and re-sends deferred slugs',async()=>{
+ const slugs=Array.from({length:20},(_,i)=>'s'+i),sent=[];
+ const live=new LivePrices({endpoint:'https://relay.example',slugs:()=>slugs,fetcher:async url=>{
+  const batch=decodeURIComponent(new URL(url).searchParams.get('slugs')).split(',');sent.push(batch.length);
+  // Relay that only manages 5 per call this time.
+  return Response.json({quotes:batch.slice(0,5).map(s=>({groww_slug:s,ltp:10})),failures:[],deferred:batch.slice(5)});
+ }});
+ assert.equal(await live.fetchNow(),true);assert.equal(live.quotes.size,20);assert.equal(live.error,'');assert.ok(sent.every(n=>n<=8));
+});

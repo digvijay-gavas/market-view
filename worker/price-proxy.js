@@ -2,7 +2,10 @@
 // Groww's public price URLs send no CORS header, so browsers cannot call them directly.
 // This relay only accepts stock slugs, caches hard, and stops at the first rate-limit signal.
 const SLUG=/^[a-z0-9][a-z0-9_-]{0,119}$/;
-const MAX_SLUGS=150, CONCURRENCY=4;
+// Cloudflare's free plan allows 50 subrequests per invocation. A slug costs up to 6
+// (cache read, Groww fetch, cache write; for instrument and price), so one call handles at
+// most BATCH slugs and returns the rest as `deferred` for the caller to send again.
+const MAX_SLUGS=150, CONCURRENCY=4, BATCH=8;
 const PRICE_TTL=10, INSTRUMENT_TTL=7*24*3600;
 const DEFAULT_ORIGINS='https://digvijay-gavas.github.io,http://127.0.0.1:5174,http://localhost:5174';
 const GROWW='https://groww.in/v1/api/stocks_data/v1/';
@@ -48,6 +51,7 @@ export async function handle(request,env={},deps={}){
  const slugs=[...new Set(String(url.searchParams.get('slugs')||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean))];
  if(!slugs.length||slugs.length>MAX_SLUGS||!slugs.every(s=>SLUG.test(s)))return json({error:'INVALID_SLUGS'},400,headers);
  const d={cache:deps.cache===undefined?globalThis.caches?.default:deps.cache,fetcher:deps.fetcher||fetch},now=deps.now?.()||new Date();
+ const deferred=slugs.splice(BATCH);
  const quotes=[],failures=[];let retryAfter=0,next=0;
  // A few at a time; once Groww says slow down, every remaining slug is skipped.
  await Promise.all(Array.from({length:Math.min(CONCURRENCY,slugs.length)},async()=>{
@@ -58,7 +62,7 @@ export async function handle(request,env={},deps={}){
    catch(error){failures.push(slug);if(error instanceof Throttled)retryAfter=error.retryAfter;}
   }
  }));
- return json({quotes,failures,retryAfter:retryAfter||null},200,headers);
+ return json({quotes,failures,deferred,retryAfter:retryAfter||null},200,headers);
 }
 
 export default {fetch:(request,env)=>handle(request,env)};
