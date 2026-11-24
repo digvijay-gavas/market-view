@@ -31,7 +31,7 @@ export async function readPnlDownload(path,now,{read=readFile,info=stat}={}){
  return read(path);
 }
 export async function acceptExtras(ext,extras,planned,now,deps={}){
- const status=ext.extrasStatus||={},pending=ext.pendingExtras||={},out={};delete ext.forceExtras;
+ const status=ext.extrasStatus||={},pending=ext.pendingExtras||={},out={};delete ext.forceExtras;delete ext.extrasScheduled;
  const at=now.toISOString(),asked=planned||{smallcases:[],pnl:false};
  for(const item of Array.isArray(extras?.smallcases)?extras.smallcases:[]){
   const id=String(item?.id||'');if(!asked.smallcases?.includes(id))continue;const key=id.toLowerCase();status.bm||={};

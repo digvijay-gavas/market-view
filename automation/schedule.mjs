@@ -15,8 +15,19 @@ export function duePlan(config,state,calendar,now=new Date(),force=false){
  if(!config.enabled&&!force)return {due:false,reason:'DISABLED'};
  if(!force&&!market.open)return {due:false,reason:market.reason};
  if(!force&&Date.parse(state.nextRunAt||'')>+now)return {due:false,reason:'NOT_DUE'};
- const positions=config.accounts.filter(a=>a.enabled!==false&&(config.positionsCadence==='each-run'||state.positions?.[a.id]?.day!==market.day)).map(a=>a.id);
+ // 'evening': market-hours runs only refresh prices; positions come from the daily capture.
+ const positions=config.positionsCadence==='evening'&&!force?[]:config.accounts.filter(a=>a.enabled!==false&&(config.positionsCadence==='each-run'||state.positions?.[a.id]?.day!==market.day)).map(a=>a.id);
  // With price updates off, an automatic run only exists to collect positions that are still missing today.
  if(!force&&config.pricesEnabled===false&&!positions.length)return {due:false,reason:'POSITIONS_CURRENT'};
  return {due:true,day:market.day,positions};
+}
+
+// Daily capture (default 20:00 IST, every day): due from that time until the day's capture has run.
+export function dailyDue(config,state,now=new Date()){
+ if(!config.enabled)return {due:false,reason:'DISABLED'};
+ if(config.schedule?.dailyCapture===false)return {due:false,reason:'DAILY_CAPTURE_OFF'};
+ const t=ist(now),at=minute(config.schedule?.dailyCaptureAt||'20:00');
+ if(t.minute<at)return {due:false,reason:'NOT_DUE'};
+ if(state.dailyCapture?.day===t.day)return {due:false,reason:'DAILY_CAPTURE_DONE'};
+ return {due:true,day:t.day};
 }

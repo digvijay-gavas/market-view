@@ -24,8 +24,8 @@ export function validateConfig(config){
  if(config?.version!==1||!Array.isArray(config.accounts)||!config.accounts.length||!config.schedule)throw new Error('CONFIG_INVALID');
  const ids=new Set();for(const a of config.accounts){if(!/^[a-z0-9_-]+$/.test(a.id)||ids.has(a.id))throw new Error('CONFIG_INVALID');ids.add(a.id);}
  if(config.rootId&&!/^[A-Za-z0-9_-]+$/.test(config.rootId))throw new Error('CONFIG_INVALID');
- if(config.positionsCadence&&!['daily','each-run'].includes(config.positionsCadence))throw new Error('CONFIG_INVALID');
- if(!['groww-public','groww-api'].includes(config.priceProvider))throw new Error('CONFIG_INVALID');if(config.pricesEnabled!==undefined&&typeof config.pricesEnabled!=='boolean')throw new Error('CONFIG_INVALID');nextDelay(config.schedule,()=>0);return config;
+ if(config.positionsCadence&&!['daily','each-run','evening'].includes(config.positionsCadence))throw new Error('CONFIG_INVALID');
+ if(config.schedule.dailyCapture!==undefined&&typeof config.schedule.dailyCapture!=='boolean')throw new Error('CONFIG_INVALID');if(config.schedule.dailyCaptureAt!==undefined&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(config.schedule.dailyCaptureAt))throw new Error('CONFIG_INVALID');if(!['groww-public','groww-api'].includes(config.priceProvider))throw new Error('CONFIG_INVALID');if(config.pricesEnabled!==undefined&&typeof config.pricesEnabled!=='boolean')throw new Error('CONFIG_INVALID');nextDelay(config.schedule,()=>0);return config;
 }
 export async function runCycle({config,state,vault,publisher,home,calendar,now=new Date(),force=false,positionsNow=false,capture=capturePositions,quotes=fetchQuotes,persist=async()=>{}}={}){
  validateConfig(config);const plan=duePlan(config,state,calendar,now,force);if(!plan.due)return {ran:false,reason:plan.reason,state};

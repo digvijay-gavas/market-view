@@ -25,7 +25,7 @@ export class ExtensionBridge{
  // Next capture for this account also runs the given extras regardless of their schedule.
  async forceExtras(account,extras){return this.locked(async()=>{const {vault}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.forceExtras={...ext.forceExtras,...extras};await vault.save();});}
  async requestCapture({account}){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');const current=captureOperation(ext,now);if(['queued','running'].includes(current?.phase))return current;ext.operation=queuedCapture(now);ext.manualRequestedAt=now.toISOString();ext.retryAt=null;ext.lastError=null;ext.request=null;await vault.save();return captureOperation(ext,now);});}
- async prepareManaged(account){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.operation=queuedCapture(now);ext.operation.managed=true;ext.runnerTicket=randomBytes(24).toString('hex');ext.manualRequestedAt=now.toISOString();ext.request=null;ext.retryAt=null;ext.lastError=null;await vault.save();return {extensionId:ext.extensionId,ticket:ext.runnerTicket,operationId:ext.operation.id};});}
+ async prepareManaged(account,{scheduled=false}={}){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.extrasScheduled=scheduled===true;ext.operation=queuedCapture(now);ext.operation.managed=true;ext.runnerTicket=randomBytes(24).toString('hex');ext.manualRequestedAt=now.toISOString();ext.request=null;ext.retryAt=null;ext.lastError=null;await vault.save();return {extensionId:ext.extensionId,ticket:ext.runnerTicket,operationId:ext.operation.id};});}
  async finishManaged(account,id,error,errorStage='capture'){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(ext?.operation?.id!==id)return;if(error)Object.assign(ext.operation,{phase:'failed',error,errorStage,completedAt:now.toISOString()});delete ext.runnerTicket;ext.manualRequestedAt=null;await vault.save();});}
  async settleCapture(account,id){
   const initial=await this.deps.openVault();if(initial.data.accounts[account]?.extension?.operation?.managed)return;
@@ -69,7 +69,8 @@ export class ExtensionBridge{
     if(!manual&&(!config.enabled||!market.open))return {action:'idle',reason:!config.enabled?'PAUSED':market.reason,account:input.account};
     if(!manual&&Date.parse(ext.retryAt||'')>+now)return {action:'idle',reason:ext.lastError||'RETRY_LATER',account:input.account};
     if(!manual&&ext.capture&&ist(new Date(ext.capture.capturedAt)).day===ist(now).day)return {action:'idle',reason:'POSITIONS_CURRENT',account:input.account};
-    const extras=plannedExtras(config,input.account,ext,now,manual);
+    // A scheduled daily capture keeps the normal extras cadence (BM daily, P&L weekly); only a person's request refreshes early.
+    const extras=plannedExtras(config,input.account,ext,now,manual&&!ext.extrasScheduled);
     // Each extra (BM page, P&L download) gets its own time on top of the holdings capture.
     if(!ext.request||Date.parse(ext.request.expiresAt)<+now)ext.request={id:randomBytes(24).toString('base64url'),issuedAt:now.toISOString(),expiresAt:new Date(+now+180000+120000*(extras.smallcases.length+(extras.pnl?1:0))).toISOString(),extras};
     if(!['queued','running'].includes(ext.operation?.phase))ext.operation=queuedCapture(now);
@@ -93,7 +94,9 @@ export class ExtensionBridge{
    }
    if(action==='error'){
     const extrasResult=input.extras?await acceptExtras(ext,input.extras,ext.request.extras,now):{};if(input.extras&&(ext.pendingExtras?.pnl||ext.pendingExtras?.bm?.length))accepted={account:input.account,id:ext.operation?.id,extrasOnly:true};
-    ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true,...extrasResult};
+    ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';
+    // Counts/position only, so the admin board can say why a holdings read was rejected.
+    const d=input.detail,int=x=>Number.isInteger(x)&&x>=0&&x<5000?x:null;ext.lastErrorDetail=d&&typeof d==='object'&&['row-format','row-link','count-mismatch','no-rows'].includes(d.reason)?{reason:d.reason,row:int(d.row),rows:int(d.rows),expected:int(d.expected),at:now.toISOString()}:null;ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true,...extrasResult};
    }
    fail('UNKNOWN_BRIDGE_ACTION');
   });

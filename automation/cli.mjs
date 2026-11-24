@@ -53,7 +53,13 @@ export async function main(args=process.argv.slice(2)){
   const config=validateConfig({version:1,enabled:false,rootId:option(args,'root',''),accounts,schedule:{open:'09:15',close:'15:30',intervalSeconds:600,jitterSeconds:60},priceProvider:'groww-public',browserChannel:'chrome',legacyCompatibility:true});
   const vault=await new Vault(home).open(true);await vault.save();await atomicJSON(configPath,config);console.log('Initialized encrypted collector state:',home);return;
  }
- if(command==='scheduled'){const {managedRun}=await import('./managed.mjs');const result=await managedRun(home);console.log(JSON.stringify({ran:result.ran,reason:result.reason}));return;}
+ if(command==='scheduled'){
+  // Same task, two triggers: market-window minutes, plus the daily capture (default 20:00 IST, every day).
+  const {managedRun}=await import('./managed.mjs'),{dailyDue}=await import('./schedule.mjs');
+  const config=validateConfig(await readJSON(join(home,'config.json'),null)),state=await readJSON(join(home,'state.json'),{}),daily=dailyDue(config,state);
+  const result=daily.due?await managedRun(home,{force:true,positionsNow:true,scheduled:true,daily:daily.day}):await managedRun(home);
+  console.log(JSON.stringify({ran:result.ran,reason:result.reason,daily:daily.due}));return;
+ }
  if(command==='run'){const result=await run(home,{force:args.includes('--force'),positionsNow:args.includes('--positions-now'),dryRun:args.includes('--dry-run')});console.log(JSON.stringify({ran:result.ran,reason:result.reason,checkpoint:result.checkpoint},null,2));return;}
  if(command==='status'){const config=await readJSON(configPath,null),state=await readJSON(join(home,'state.json'),{});console.log(JSON.stringify({home,enabled:config?.enabled,rootConfigured:Boolean(config?.rootId),accounts:config?.accounts.map(a=>({id:a.id,state:state.blocked?.[a.id]||state.accounts?.[a.id]||'not_enrolled',lastPosition:state.positions?.[a.id]?.capturedAt})),lastRunAt:state.lastRunAt,nextRunAt:state.nextRunAt,lastError:state.lastError},null,2));return;}
  const config=validateConfig(await readJSON(configPath,null));

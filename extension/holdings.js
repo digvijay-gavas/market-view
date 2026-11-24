@@ -6,12 +6,13 @@ export function probePage(){
 export function extractHoldings(){
  const rx=/^(.+?)([\d,]+)\s*shares\s*Avg\.\s*₹\s*([\d,]+\.\d+)\s*₹\s*([\d,]+\.\d{2})\s*([-+]?[\d,.]+)\s*\(([-+]?[\d.]+)%\)\s*([-+]?)₹\s*([\d,]+\.\d{2})\s*([-+]?[\d.]+)%\s*₹\s*([\d,]+\.\d{2})\s*₹\s*([\d,]+\.\d{2})/;
  const nodes=[...document.querySelectorAll('tr[class*="holdingRow_tablerow"]')],number=s=>Number(s.replace(/,/g,'')),rows=[];
- for(const node of nodes){const m=node.textContent.replace(/\s+/g,' ').trim().match(rx),a=node.querySelector('a[href*="/stocks/"]');if(!m||!a)return {error:'PARTIAL_HOLDINGS'};
+ // Failures say which check failed (counts and row position only; never holding data).
+ for(const [index,node] of nodes.entries()){const m=node.textContent.replace(/\s+/g,' ').trim().match(rx),a=node.querySelector('a[href*="/stocks/"]');if(!m||!a)return {error:'PARTIAL_HOLDINGS',detail:{reason:!m?'row-format':'row-link',row:index+1,rows:nodes.length}};
   const slug=a.getAttribute('href').split('/stocks/')[1].split(/[?#]/)[0];
   rows.push({groww_slug:slug,name:m[1].trim(),qty:number(m[2]),avg_price:number(m[3]),reference_price:number(m[4]),reference_value:number(m[10]),invested:number(m[11])});
  }
  const expected=(document.body.innerText.match(/HOLDINGS\s*\((\d+)\)/i)||[])[1];
- if(!rows.length||expected!==undefined&&Number(expected)!==rows.length)return {error:'PARTIAL_HOLDINGS'};
+ if(!rows.length||expected!==undefined&&Number(expected)!==rows.length)return {error:'PARTIAL_HOLDINGS',detail:{reason:rows.length?'count-mismatch':'no-rows',rows:rows.length,expected:expected===undefined?null:Number(expected)}};
  return {rows};
 }
 export function scrollHoldings(){window.scrollTo(0,document.body.scrollHeight);for(const el of document.querySelectorAll('main,[class*="holdings"]'))if(el.scrollHeight>el.clientHeight)el.scrollTop=el.scrollHeight;}

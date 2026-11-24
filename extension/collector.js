@@ -14,7 +14,7 @@ export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.n
    if(probe.signedOut)fail('AUTH_REQUIRED');
    if(probe.rows&&!probe.pending){
     await evaluate(scrollHoldings);
-    if(probe.rows===previous){if(++stable>=3){const parsed=await evaluate(extractHoldings);if(parsed?.error||!parsed?.rows?.length)fail('PARTIAL_HOLDINGS');return {rows:parsed.rows,emptyVerified:false,capturedAt:new Date(now()).toISOString()};}}else stable=0;
+    if(probe.rows===previous){if(++stable>=3){const parsed=await evaluate(extractHoldings);if(parsed?.error||!parsed?.rows?.length)throw Object.assign(new Error('PARTIAL_HOLDINGS'),{detail:parsed?.detail||null});return {rows:parsed.rows,emptyVerified:false,capturedAt:new Date(now()).toISOString()};}}else stable=0;
     previous=probe.rows;
    }else if(probe.empty&&!probe.busy&&!probe.pending){if(++empty>=3)return {rows:[],emptyVerified:true,capturedAt:new Date(now()).toISOString()};}
    else{empty=0;stable=0;}await delay(1000);
@@ -39,6 +39,6 @@ export async function collectCycle(chromeApi,api,manual=false,options={}){
  catch(error){const code=/^[A-Z_]+$/.test(error.message||'')?error.message:'GROWW_UNAVAILABLE';
   // Signed-out or PIN problems would fail the extras too; anything else, still try them.
   if(!extras&&!['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED','PIN_REQUIRED','PIN_INPUT_CHANGED'].includes(code))extras=await runExtras().catch(()=>null);
-  const response=await api('error',{requestId:plan.requestId,code,...(extras?{extras}:{})}).catch(()=>null);
+  const response=await api('error',{requestId:plan.requestId,code,...(error.detail?{detail:error.detail}:{}),...(extras?{extras}:{})}).catch(()=>null);
   if(extras?.pnl?.downloadId!==undefined&&response?.pnlRead)await discardDownload(chromeApi,extras.pnl.downloadId);return {state:'attention',reason:code,account:plan.account};}
 }
