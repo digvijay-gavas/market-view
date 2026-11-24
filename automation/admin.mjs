@@ -54,7 +54,7 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
    if(req.method==='POST'&&url.pathname==='/api/action'){
     if(req.headers['content-type']?.split(';')[0]!=='application/json')return send(415,{error:'JSON_REQUIRED'});
     if(Number(req.headers['content-length']||0)>MAX_BODY)return send(413,{error:'REQUEST_TOO_LARGE'});
-    const input=await bodyJSON(req),actions={initialize:'initialize',pin:'savePin','add-account':'addAccount',folder:'saveRoot',enroll:'enroll',google:'connectGoogle',confirm:'confirm',cancel:'cancel',start:'startSchedule',pause:'pause',fetch:'fetchNow','reconcile-all':'reconcileAll',frequency:'saveFrequency','open-account-chrome':'openAccountChrome','pair-extension':'pairExtension','revoke-extension':'revokeExtension','capture-extension':'requestExtensionCapture'};
+    const input=await bodyJSON(req),actions={initialize:'initialize',pin:'savePin','add-account':'addAccount',folder:'saveRoot',enroll:'enroll',google:'connectGoogle',confirm:'confirm',cancel:'cancel',start:'startSchedule',pause:'pause',fetch:'fetchNow','reconcile-all':'reconcileAll',frequency:'saveFrequency','open-account-chrome':'openAccountChrome','pair-extension':'pairExtension','revoke-extension':'revokeExtension','capture-extension':'requestExtensionCapture','save-bm':'saveBm','capture-bm':'captureBm'};
     if(!Object.hasOwn(actions,input.action))return send(400,{error:'UNKNOWN_ACTION'});
     const result=await service[actions[input.action]](input);return send(200,{ok:true,job:result?.type?result:undefined,operation:input.action==='capture-extension'&&!result?.type?result:undefined,pairing:result?.code?result:undefined});
    }

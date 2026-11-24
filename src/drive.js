@@ -2,6 +2,7 @@ import {materializePositions} from './progressive.js';
 import {isBmPartition} from './bm.js';
 import {fileRevision} from './cache.js';
 import {SNAPSHOT, newestValid, validateSnapshot, confirmationAt} from './model.js';
+import {MV_FOLDER,MV_DATASETS,MV_SOURCES,lotsAsReport,weightsAsSmallcase} from './mv-data.js';
 const API='https://www.googleapis.com/drive/v3';
 const FOLDER='application/vnd.google-apps.folder';
 const escapeQuery=s=>s.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
@@ -73,13 +74,17 @@ export class DriveReader {
     // Only source inputs participate. Cache files and confirmation logs cannot
     // invalidate calculations; metadata scans never download snapshot bodies.
     const names=['_schema','groww.live_holdings','groww.dividend_report','groww.pnl_report','smallcase.constituents','portfolio.positions','market.prices'];
-    const folders=(await this.children([rootId])).filter(f=>f.mimeType===FOLDER&&names.includes(f.name));
+    const rootFolders=(await this.children([rootId])).filter(f=>f.mimeType===FOLDER);
+    let folders=rootFolders.filter(f=>names.includes(f.name));
+    // market-view's own captures (market-view-data/<dataset>/<partition>/…) count as sources too.
+    const mvRoots=rootFolders.filter(f=>f.name===MV_FOLDER);
+    if(mvRoots.length){const mv=(await this.children(mvRoots.map(f=>f.id))).filter(f=>f.mimeType===FOLDER&&MV_SOURCES.includes(f.name));folders=folders.concat(mv.map(f=>({...f,name:MV_FOLDER+'/'+f.name})));}
     const manifest=folders.map(f=>['folder',f.name,f.id]);let trustworthy=true;
     // Listings are independent, so run a few at a time (was ~30 sequential calls on every load).
-    const datasets=await mapLimit(names.filter(dataset=>folders.some(f=>f.name===dataset)),SIGNATURE_CONCURRENCY,async dataset=>({dataset,children:await this.children(folders.filter(f=>f.name===dataset).map(f=>f.id))}));
+    const datasets=await mapLimit([...names,...MV_SOURCES.map(d=>MV_FOLDER+'/'+d)].filter(dataset=>folders.some(f=>f.name===dataset)),SIGNATURE_CONCURRENCY,async dataset=>({dataset,children:await this.children(folders.filter(f=>f.name===dataset).map(f=>f.id))}));
     const partitionLists=[];
     for(const {dataset,children} of datasets){
-      if(dataset==='_schema'){
+      if(dataset.endsWith('_schema')){
         for(const f of children.filter(f=>f.name==='catalog.json')){const revision=fileRevision(f);if(!revision)trustworthy=false;manifest.push([dataset,f.id,f.name,revision]);}
       }else{
         const partitions=children.filter(f=>f.mimeType===FOLDER&&/^[A-Za-z0-9_-]+$/.test(f.name)&&(dataset!=='smallcase.constituents'||isBmPartition(f.name)));
@@ -110,6 +115,15 @@ export class DriveReader {
     if(!catalogs.length)throw new Error('The store catalog is missing.');
     onProgress('Checking data format…',30);
     const catalog=await this.readJSON(catalogs[0]);
+    // market-view's own folder: positions and prices join the same dataset groups (newest file wins);
+    // its catalog describes them, so the Market app's catalog never has to.
+    let mvFolders=[];
+    if(datasets.has(MV_FOLDER)){
+      mvFolders=(await this.children(datasets.get(MV_FOLDER))).filter(f=>f.mimeType===FOLDER);
+      const mvCatalog=mvFolders.some(f=>f.name==='_schema')?(await this.children(mvFolders.filter(f=>f.name==='_schema').map(f=>f.id))).filter(f=>f.name==='catalog.json').sort((a,b)=>a.id.localeCompare(b.id))[0]:null;
+      if(mvCatalog)try{const mv=await this.readJSON(mvCatalog);if(mv?.store_version===1&&mv.datasets)catalog.datasets={...catalog.datasets,...mv.datasets};}catch(error){if(error.authExpired||error.fatal)throw error;warnings.push('market-view-data catalog unreadable; using the shared catalog.');}
+      for(const f of mvFolders.filter(f=>['portfolio.positions','market.prices'].includes(f.name))){const ids=datasets.get(f.name)||[];ids.push(f.id);datasets.set(f.name,ids);}
+    }
     if(catalog.store_version!==1||catalog.datasets?.['groww.live_holdings']?.version!==1||catalog.datasets['groww.live_holdings'].semantics!=='latest')throw new Error('This store version is not supported. Expected Market v1 holdings snapshots.');
     const snapshots=[],dividends=[],logs=[],reports=[],smallcases=[],positionSnapshots=[],priceSnapshots=[];let reportAccounts=[];
     const skip=()=>warnings.push('Skipped an invalid, unsupported or incomplete snapshot; a valid older capture may be shown.');
@@ -154,6 +168,24 @@ export class DriveReader {
             const doc=validateSnapshot(await this.readJSON(f),dataset,partition);
             if(!hashes.has(doc.content_hash)){dividends.push(doc);hashes.add(doc.content_hash);}
           }catch(e){if(e.authExpired||e.fatal)throw e;skip();}
+        }
+      }
+    }
+    if(datasets.has(MV_FOLDER)){
+      onProgress('Loading market-view captures…',88);
+      const mvSets=new Map();for(const f of mvFolders.filter(f=>MV_DATASETS[f.name])){const ids=mvSets.get(f.name)||[];ids.push(f.id);mvSets.set(f.name,ids);}
+      for(const [dataset,ids] of mvSets){
+        const groups=new Map();for(const p of (await this.children(ids)).filter(p=>p.mimeType===FOLDER&&/^[a-z0-9_-]+$/.test(p.name))){const g=groups.get(p.name)||[];g.push(p.id);groups.set(p.name,g);}
+        for(const [partition,parents] of groups){
+          if(dataset==='bm.weights'&&!isBmPartition(partition))continue;
+          const files=(await this.children(parents)).filter(f=>SNAPSHOT.test(f.name)).sort((a,b)=>b.name.localeCompare(a.name));
+          // P&L: newest valid only. BM: every capture, so a dropped stock can be shown as removed.
+          for(const file of dataset==='pnl.lots'?files:files.slice(0,24)){
+            try{const doc=validateSnapshot(await this.readJSON(file),dataset,partition);
+              if(dataset==='pnl.lots'){reports.push(lotsAsReport(doc));break;}
+              if(!smallcases.some(s=>s.content_hash===doc.content_hash))smallcases.push(weightsAsSmallcase(doc));
+            }catch(error){if(error.authExpired||error.fatal)throw error;skip();}
+          }
         }
       }
     }

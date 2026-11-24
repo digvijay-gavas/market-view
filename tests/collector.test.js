@@ -47,7 +47,7 @@ test('official quotes batch at most fifty instruments and share one authenticate
 });
 function harness(){
  const docs=new Map(),writes=[],account={id:'a'},config={version:1,enabled:true,rootId:'synthetic',accounts:[account],schedule,priceProvider:'groww-public'},state={},vault={data:{accounts:{a:{bound:true}}},save:async()=>{}};
- const publisher={ensureCatalog:async()=>{},latest:async(d,p)=>docs.get(d+'/'+p),publish:async(d,p,tables,meta,at)=>{const doc={dataset:d,partition:p,tables,meta,captured_at:at.toISOString(),content_hash:'sha256:'+'a'.repeat(64)};docs.set(d+'/'+p,doc);writes.push(d);return {doc};},compileCache:async()=>({reused:false}),status:async()=>{}};
+ const publisher={marketViewData:async function(){return this;},ensureCatalog:async()=>{},latest:async(d,p)=>docs.get(d+'/'+p),publish:async(d,p,tables,meta,at)=>{const doc={dataset:d,partition:p,tables,meta,captured_at:at.toISOString(),content_hash:'sha256:'+'a'.repeat(64)};docs.set(d+'/'+p,doc);writes.push(d);return {doc};},compileCache:async()=>({reused:false}),status:async()=>{}};
  let captures=0;const capture=async()=>{captures++;return {rows:[{groww_slug:'one',name:'One',qty:2,invested:100,reference_price:55,reference_value:110}],storageState:{}};};
  const quotes=async rows=>({quotes:rows.map(r=>({groww_slug:r.groww_slug,ltp:60,fetched_at:'2026-11-23T04:00:00Z',source:'test'})),fresh:rows.length,failures:[],instruments:{}});
  return {config,state,vault,publisher,capture,quotes,calendar,docs,writes,get captures(){return captures;}};

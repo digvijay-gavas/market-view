@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
   "name": "Market Family Collector",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "minimum_chrome_version": "120",
-  "description": "Collect Groww holdings from this signed-in Chrome profile for your paired local Market collector.",
+  "description": "Collect Groww holdings, P&L lots and BM weights from this signed-in Chrome profile for your paired local Market collector.",
   "permissions": [
     "storage",
     "alarms",
-    "scripting"
+    "scripting",
+    "downloads"
   ],
   "host_permissions": [
     "https://groww.in/*",
+    "https://smallcases.groww.in/*",
     "http://127.0.0.1/*"
   ],
   "background": {

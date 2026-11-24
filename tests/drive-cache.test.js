@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {DriveDashboardCache,makeDriveCache,readDriveCache,cacheAge,CACHE_VERSION,CACHE_FILE,reuseSharedCache,RECHECK_MS} from '../src/drive-cache.js';
 import {buildPortfolio} from '../src/model.js';
+import {MV_FOLDER} from '../src/mv-data.js';
 const now=Date.now();
 const snapshot={store_version:1,schema_version:1,dataset:'groww.live_holdings',partition:'one',captured_at:'2026-01-01T10:00:00Z',as_of:'2026-01-01',content_hash:'sha256:'+'a'.repeat(64),tables:{holdings:[{groww_slug:'synthetic-alpha',name:'Synthetic Alpha',qty:1,invested:100,current_value:110}]}};
 const store={root:{id:'source-root',name:'Synthetic portfolio',mimeType:'application/vnd.google-apps.folder'},snapshots:[snapshot],dividends:[],reports:[],smallcases:[],warnings:[],loadedAt:new Date(now).toISOString(),sourceSignature:'sha256:'+'c'.repeat(64)};
@@ -22,17 +23,29 @@ test('wrong root, future, expired, invalid-source and old-version caches are ign
 test('cache timestamp accurately states hours and days instead of claiming a live portfolio',()=>{
  assert.equal(cacheAge(new Date(now).toISOString(),now),'just now');assert.equal(cacheAge(new Date(now-7200000).toISOString(),now),'2 hr ago');assert.equal(cacheAge(new Date(now-2*86400000).toISOString(),now),'2 days ago');
 });
-function sharedBackend({canAdd=true,canEdit=true}={}){
- const calls=[];let saved=null,file=null,creates=0;
+function sharedBackend({canAdd=true,canEdit=true,legacy=null}={}){
+ // Fake Drive: market-data root ('source-root') → market-view-data folder ('mv') → cache file.
+ const calls=[];let saved=null,file=null,folder=null,creates=0;
  return {calls,get creates(){return creates;},fetcher:async(url,options)=>{
   url=new URL(url);calls.push({url,options});
-  if(options.method==='POST'){const metadata=JSON.parse(options.body);assert.deepEqual(metadata.parents,['source-root']);assert.equal(metadata.name,CACHE_FILE);creates++;file={id:'shared-cache',name:CACHE_FILE,mimeType:'application/json',parents:['source-root'],capabilities:{canEdit}};return Response.json({id:file.id});}
+  if(options.method==='POST'){const metadata=JSON.parse(options.body);
+   if(metadata.mimeType==='application/vnd.google-apps.folder'){assert.deepEqual(metadata.parents,['source-root']);assert.equal(metadata.name,MV_FOLDER);folder={id:'mv',name:MV_FOLDER,mimeType:metadata.mimeType,parents:['source-root'],capabilities:{canAddChildren:canAdd}};return Response.json({id:'mv'});}
+   assert.deepEqual(metadata.parents,['mv']);assert.equal(metadata.name,CACHE_FILE);creates++;file={id:'shared-cache',name:CACHE_FILE,mimeType:'application/json',parents:['mv'],capabilities:{canEdit}};return Response.json({id:file.id});}
   if(options.method==='PATCH'){assert.equal(url.pathname,'/upload/drive/v3/files/shared-cache');saved=JSON.parse(options.body);return Response.json({id:file.id});}
-  if(url.searchParams.get('alt')==='media')return Response.json(saved);
+  if(url.searchParams.get('alt')==='media')return Response.json(url.pathname.endsWith('/legacy-cache')?legacy:saved);
   if(url.pathname==='/drive/v3/files/source-root')return Response.json({id:'source-root',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:canAdd}});
-  assert.equal(url.searchParams.get('spaces'),'drive');assert.ok(url.searchParams.get('q').includes("'source-root' in parents"));assert.equal(url.searchParams.get('supportsAllDrives'),'true');return Response.json({files:file?[file]:[]});
+  const q=url.searchParams.get('q');assert.equal(url.searchParams.get('spaces'),'drive');assert.equal(url.searchParams.get('supportsAllDrives'),'true');
+  if(q.includes("name = '"+MV_FOLDER+"'"))return Response.json({files:folder?[folder]:[]});
+  if(q.includes("'mv' in parents"))return Response.json({files:file?[file]:[]});
+  assert.ok(q.includes("'source-root' in parents"));return Response.json({files:legacy?[{id:'legacy-cache',name:CACHE_FILE,mimeType:'application/json',parents:['source-root']}]:[]});
  }};
 }
+test('a cache left in the market-data root by older builds is still read, but new saves go to market-view-data',async()=>{
+ const backend=sharedBackend({legacy:payload()});
+ assert.equal((await new DriveDashboardCache('viewer',{fetcher:backend.fetcher}).load('source-root')).views[0][1].value,110);
+ await new DriveDashboardCache('editor',{fetcher:backend.fetcher,writeEnabled:true}).save('source-root',payload());
+ assert.equal(backend.creates,1);assert.ok(!backend.calls.some(c=>c.options.method==='PATCH'&&c.url.pathname.endsWith('legacy-cache')));
+});
 test('different family accounts read the same cache in the same shared root; viewer never writes',async()=>{
  const backend=sharedBackend(),editor=new DriveDashboardCache('editor-token',{fetcher:backend.fetcher,writeEnabled:true});
  await editor.save('source-root',payload());const before=backend.calls.length;

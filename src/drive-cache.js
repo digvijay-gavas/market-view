@@ -3,6 +3,10 @@ export const READ_SCOPE='https://www.googleapis.com/auth/drive.readonly';
 // Shared-folder updates require an editor's explicit opt-in to Drive write scope.
 export const CACHE_SCOPE='https://www.googleapis.com/auth/drive';
 export const CACHE_FILE='_market-view-dashboard-cache.json';
+// Lives in market-data/market-view-data (market-view's own folder). Older builds kept it in the
+// market-data root; that copy is still read until the first save into the new folder.
+import {MV_FOLDER} from './mv-data.js';
+const FOLDER_TYPE='application/vnd.google-apps.folder';
 export const RECHECK_MS=4*3600000;
 export const CACHE_VERSION=8;
 const MAX_BYTES=24*1024*1024;
@@ -62,17 +66,28 @@ export class DriveDashboardCache{
   const body=await response.text();if(body.length>MAX_BYTES)throw new Error('Drive cache is too large.');
   return body?JSON.parse(body):null;
  }
- async find(rootId){
-  if(typeof rootId!=='string'||!/^[A-Za-z0-9_-]+$/.test(rootId))throw new Error('Invalid cache source folder.');
+ async list(q){
   const files=[];let pageToken;
   do{
    const url=new URL('https://www.googleapis.com/drive/v3/files');
-   url.search=new URLSearchParams({spaces:'drive',q:"trashed = false and '"+rootId+"' in parents and name = '"+CACHE_FILE+"'",fields:'nextPageToken,files(id,name,mimeType,parents,modifiedTime,size,capabilities(canEdit))',pageSize:'100',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(pageToken?{pageToken}:{})});
+   url.search=new URLSearchParams({spaces:'drive',q,fields:'nextPageToken,files(id,name,mimeType,parents,modifiedTime,size,capabilities(canEdit,canAddChildren))',pageSize:'100',supportsAllDrives:'true',includeItemsFromAllDrives:'true',...(pageToken?{pageToken}:{})});
    const data=await this.request(url);files.push(...(data.files||[]));pageToken=data.nextPageToken;
   }while(pageToken);
-  // Stable canonical choice if two initial writers happened to create duplicates.
-  const file=files.filter(f=>f.name===CACHE_FILE&&f.mimeType==='application/json'&&f.parents?.includes(rootId)).sort((a,b)=>a.id.localeCompare(b.id))[0];
-  if(file)this.files.set(rootId,file);else this.files.delete(rootId);return file;
+  return files;
+ }
+ async mvFolder(rootId){
+  if(this.folders?.has(rootId))return this.folders.get(rootId);
+  const found=(await this.list("trashed = false and '"+rootId+"' in parents and name = '"+MV_FOLDER+"' and mimeType = '"+FOLDER_TYPE+"'")).filter(f=>f.parents?.includes(rootId)).sort((a,b)=>a.id.localeCompare(b.id))[0]||null;
+  (this.folders||=new Map()).set(rootId,found);return found;
+ }
+ async find(rootId,{legacy=true}={}){
+  if(typeof rootId!=='string'||!/^[A-Za-z0-9_-]+$/.test(rootId))throw new Error('Invalid cache source folder.');
+  const folder=await this.mvFolder(rootId);
+  for(const parent of [folder?.id,legacy?rootId:null].filter(Boolean)){
+   const file=(await this.list("trashed = false and '"+parent+"' in parents and name = '"+CACHE_FILE+"'")).filter(f=>f.name===CACHE_FILE&&f.mimeType==='application/json'&&f.parents?.includes(parent)).sort((a,b)=>a.id.localeCompare(b.id))[0];
+   if(file){file.legacy=parent===rootId;this.files.set(rootId,file);return file;}
+  }
+  this.files.delete(rootId);return undefined;
  }
  async load(rootId){
   const file=await this.find(rootId);if(!file||Number(file.size)>MAX_BYTES)return null;
@@ -83,13 +98,19 @@ export class DriveDashboardCache{
   if(!this.writeEnabled)throw Object.assign(new Error('Shared cache updates are not enabled for this login.'),{cacheReadOnly:true});
   if(!readDriveCache(payload,rootId))throw new Error('Invalid dashboard cache.');
   const body=JSON.stringify(payload);if(new TextEncoder().encode(body).length>MAX_BYTES)throw new Error('Dashboard cache exceeds size limit.');
-  let file=await this.find(rootId);
+  let file=await this.find(rootId,{legacy:false});
   if(file){const existing=readDriveCache(await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true'),rootId);if(existing?.store.sourceSignature===payload.store.sourceSignature)return {unchanged:true};}
   if(!file){
-   const root=await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(rootId)+'?fields=id,mimeType,trashed,capabilities(canAddChildren)&supportsAllDrives=true');
-   if(root.id!==rootId||root.mimeType!=='application/vnd.google-apps.folder'||root.trashed||root.capabilities?.canAddChildren!==true)throw Object.assign(new Error('A folder editor must create the shared cache.'),{cacheReadOnly:true});
-   const created=await this.request('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CACHE_FILE,parents:[rootId],mimeType:'application/json'})});
-   file=await this.find(rootId);if(!file||!created.id)throw new Error('Could not locate the shared cache after creation.');
+   let folder=await this.mvFolder(rootId);
+   if(!folder){
+    const root=await this.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(rootId)+'?fields=id,mimeType,trashed,capabilities(canAddChildren)&supportsAllDrives=true');
+    if(root.id!==rootId||root.mimeType!==FOLDER_TYPE||root.trashed||root.capabilities?.canAddChildren!==true)throw Object.assign(new Error('A folder editor must create the shared cache.'),{cacheReadOnly:true});
+    await this.request('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:MV_FOLDER,parents:[rootId],mimeType:FOLDER_TYPE})});
+    this.folders.delete(rootId);folder=await this.mvFolder(rootId);if(!folder)throw new Error('Could not locate market-view-data after creation.');
+   }
+   if(folder.capabilities?.canAddChildren!==true)throw Object.assign(new Error('A folder editor must create the shared cache.'),{cacheReadOnly:true});
+   const created=await this.request('https://www.googleapis.com/drive/v3/files?fields=id&supportsAllDrives=true',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:CACHE_FILE,parents:[folder.id],mimeType:'application/json'})});
+   file=await this.find(rootId,{legacy:false});if(!file||!created.id)throw new Error('Could not locate the shared cache after creation.');
   }
   if(file.capabilities?.canEdit!==true)throw Object.assign(new Error('Only cache editors can update the shared file.'),{cacheReadOnly:true});
   await this.request('https://www.googleapis.com/upload/drive/v3/files/'+encodeURIComponent(file.id)+'?uploadType=media&fields=id&supportsAllDrives=true',{method:'PATCH',headers:{'Content-Type':'application/json'},body});

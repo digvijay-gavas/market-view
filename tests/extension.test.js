@@ -51,10 +51,10 @@ test('collection waits for a stable complete table and posts structured holdings
 });
 test('worker publishes extension timestamps and never opens a browser for paired accounts',async()=>{
  const f=fixture();f.config.accounts=[{id:'swati',captureMode:'extension'}];f.vault.data.accounts.swati.extension={confirmed:true,capture:{rows:[row],capturedAt:'2026-11-23T03:55:00.000Z'}};const writes=[];
- const publisher={ensureCatalog:async()=>{},latest:async()=>null,publish:async(d,p,t,m,at)=>{writes.push({d,at:at.toISOString()});return {doc:{tables:t,captured_at:at.toISOString(),content_hash:'sha256:'+'a'.repeat(64)}};},compileCache:async()=>({reused:false}),status:async()=>{}};
+ const publisher={marketViewData:async function(){return this;},ensureCatalog:async()=>{},latest:async()=>null,publish:async(d,p,t,m,at)=>{writes.push({d,at:at.toISOString()});return {doc:{tables:t,captured_at:at.toISOString(),content_hash:'sha256:'+'a'.repeat(64)}};},compileCache:async()=>({reused:false}),status:async()=>{}};
  await runCycle({config:f.config,state:{},vault:f.vault,publisher,calendar:{years:[2026],holidays:[]},now:new Date(at),capture:async()=>assert.fail('Browser must not launch'),quotes:async()=>({quotes:[],fresh:0,failures:[],instruments:{}})});
- assert.equal(writes.find(w=>w.d==='portfolio.positions').at,'2026-11-23T03:55:00.000Z');assert.equal(writes.find(w=>w.d==='groww.live_holdings').at,'2026-11-23T03:55:00.000Z');
+ assert.equal(writes.find(w=>w.d==='portfolio.positions').at,'2026-11-23T03:55:00.000Z');assert.equal(writes.some(w=>w.d==='groww.live_holdings'),false,"the Market app's dataset is never written");
 });
 test('extension manifest limits access to Groww and loopback and requests no cookies or Google access',async()=>{
- const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url)));assert.deepEqual(manifest.host_permissions,['https://groww.in/*','http://127.0.0.1/*']);assert.equal(manifest.permissions.includes('cookies'),false);assert.equal(manifest.manifest_version,3);
+ const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url)));assert.deepEqual(manifest.host_permissions,['https://groww.in/*','https://smallcases.groww.in/*','http://127.0.0.1/*']);assert.equal(manifest.permissions.includes('cookies'),false);assert.equal(manifest.manifest_version,3);
 });

@@ -26,7 +26,7 @@ export async function managedRun(home,{force=false,account,positionsNow=force}={
     if(!force&&Date.parse(ext.retryAt||'')>+d.now())throw new Error(ext.lastError||'RETRY_LATER');
     if(vault.data.accounts[a.id]?.pinAttemptPending)throw new Error('PIN_CHECK_REQUIRED');
     prepared=await bridge.prepareManaged(a.id);await d.launch(a.legacyProfileHint,prepared.extensionId,prepared.ticket);
-    const openingDeadline=+d.now()+45000,deadline=+d.now()+210000;let op;
+    const openingDeadline=+d.now()+45000,deadline=+d.now()+540000;/* positions + BM page + P&L download */let op;
     do{await d.sleep(2000);const current=await d.openVault();op=captureOperation(current.data.accounts[a.id]?.extension,d.now());if(op?.id!==prepared.operationId)throw new Error('CAPTURE_SUPERSEDED');if(op.phase==='queued'&&+d.now()>openingDeadline)throw new Error('EXTENSION_OFFLINE');if(['captured','succeeded','failed'].includes(op.phase))break;}while(+d.now()<deadline);
     if(!['captured','succeeded'].includes(op?.phase))throw new Error(op?.error||'EXTENSION_OFFLINE');
     await bridge.finishManaged(a.id,prepared.operationId);item.phase='captured';item.positions=op.positions;captures.push({account:a.id,id:prepared.operationId});

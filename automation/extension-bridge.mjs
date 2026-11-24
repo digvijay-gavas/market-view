@@ -5,6 +5,7 @@ import {readJSON,lock,validateConfig} from './worker.mjs';
 import {ist,marketOpen} from './schedule.mjs';
 import {validateProgressive} from '../src/progressive.js';
 import {queuedCapture,captureOperation} from './capture-operation.mjs';
+import {plannedExtras,acceptExtras} from './extras.mjs';
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const fail=code=>{throw new Error(code);};
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
@@ -21,6 +22,8 @@ export class ExtensionBridge{
   const code=randomBytes(10).toString('hex').toUpperCase(),expires=+now+600000;this.codes.set(hash(code),{account,expires});return {code,expiresAt:new Date(expires).toISOString()};
  });}
  async revoke({account}){return this.locked(async()=>{const {config,vault}=await this.context();const entry=config.accounts.find(a=>a.id===account);if(!entry)fail('UNKNOWN_ACCOUNT');const secret=vault.data.accounts[account];if(secret){delete secret.extension;secret.bound=false;}entry.captureMode='extension';await vault.save();await this.deps.atomicJSON(join(this.home,'config.json'),config);for(const [key,item]of this.codes)if(item.account===account)this.codes.delete(key);});}
+ // Next capture for this account also runs the given extras regardless of their schedule.
+ async forceExtras(account,extras){return this.locked(async()=>{const {vault}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.forceExtras={...ext.forceExtras,...extras};await vault.save();});}
  async requestCapture({account}){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');const current=captureOperation(ext,now);if(['queued','running'].includes(current?.phase))return current;ext.operation=queuedCapture(now);ext.manualRequestedAt=now.toISOString();ext.retryAt=null;ext.lastError=null;ext.request=null;await vault.save();return captureOperation(ext,now);});}
  async prepareManaged(account){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(!ext?.confirmed)fail('EXTENSION_NOT_PAIRED');ext.operation=queuedCapture(now);ext.operation.managed=true;ext.runnerTicket=randomBytes(24).toString('hex');ext.manualRequestedAt=now.toISOString();ext.request=null;ext.retryAt=null;ext.lastError=null;await vault.save();return {extensionId:ext.extensionId,ticket:ext.runnerTicket,operationId:ext.operation.id};});}
  async finishManaged(account,id,error,errorStage='capture'){return this.locked(async()=>{const {vault,now}=await this.context(),ext=vault.data.accounts[account]?.extension;if(ext?.operation?.id!==id)return;if(error)Object.assign(ext.operation,{phase:'failed',error,errorStage,completedAt:now.toISOString()});delete ext.runnerTicket;ext.manualRequestedAt=null;await vault.save();});}
@@ -66,10 +69,12 @@ export class ExtensionBridge{
     if(!manual&&(!config.enabled||!market.open))return {action:'idle',reason:!config.enabled?'PAUSED':market.reason,account:input.account};
     if(!manual&&Date.parse(ext.retryAt||'')>+now)return {action:'idle',reason:ext.lastError||'RETRY_LATER',account:input.account};
     if(!manual&&ext.capture&&ist(new Date(ext.capture.capturedAt)).day===ist(now).day)return {action:'idle',reason:'POSITIONS_CURRENT',account:input.account};
-    if(!ext.request||Date.parse(ext.request.expiresAt)<+now)ext.request={id:randomBytes(24).toString('base64url'),issuedAt:now.toISOString(),expiresAt:new Date(+now+180000).toISOString()};
+    const extras=plannedExtras(config,input.account,ext,now,manual);
+    // Each extra (BM page, P&L download) gets its own time on top of the holdings capture.
+    if(!ext.request||Date.parse(ext.request.expiresAt)<+now)ext.request={id:randomBytes(24).toString('base64url'),issuedAt:now.toISOString(),expiresAt:new Date(+now+180000+120000*(extras.smallcases.length+(extras.pnl?1:0))).toISOString(),extras};
     if(!['queued','running'].includes(ext.operation?.phase))ext.operation=queuedCapture(now);
     Object.assign(ext.operation,{phase:'running',startedAt:ext.operation.startedAt||now.toISOString(),deadlineAt:ext.request.expiresAt,captureRequestId:ext.request.id});
-    await vault.save();return {action:'capture',account:input.account,requestId:ext.request.id,expiresAt:ext.request.expiresAt};
+    await vault.save();return {action:'capture',account:input.account,requestId:ext.request.id,expiresAt:ext.request.expiresAt,...(ext.request.extras||{smallcases:[],pnl:false})};
    }
    this.request(ext,input,now);
    if(action==='unlock'){
@@ -81,9 +86,10 @@ export class ExtensionBridge{
     const captured=Date.parse(input.capturedAt);if(!Number.isFinite(captured)||captured< Date.parse(ext.request.issuedAt)-5000||captured>+now+300000)fail('CAPTURE_TIME_INVALID');
     const fields=['groww_slug','name','qty','invested','avg_price','reference_price','reference_value'];
     const rows=input.rows.map(r=>Object.fromEntries(fields.filter(k=>r[k]!==undefined).map(k=>[k,r[k]])));validateProgressive({dataset:'portfolio.positions',tables:{positions:rows}});
+    const extrasResult=await acceptExtras(ext,input.extras,ext.request.extras,now);
     ext.capture={rows,capturedAt:new Date(captured).toISOString(),requestId:ext.request.id};ext.request=null;ext.manualRequestedAt=null;ext.lastError=null;ext.retryAt=null;secret.pinAttemptPending=false;
     ext.operation||=queuedCapture(now);Object.assign(ext.operation,{phase:'captured',captureRequestId:ext.capture.requestId,capturedAt:ext.capture.capturedAt,positions:rows.length,error:null,publishState:'pending',deadlineAt:new Date(+now+600000).toISOString()});
-    const state=await this.deps.readJSON(join(this.home,'state.json'),{});if(state.blocked)delete state.blocked[input.account];await vault.save();await this.deps.atomicJSON(join(this.home,'state.json'),state);accepted={account:input.account,id:ext.operation.id};return {accepted:true,positions:rows.length,capturedAt:ext.capture.capturedAt};
+    const state=await this.deps.readJSON(join(this.home,'state.json'),{});if(state.blocked)delete state.blocked[input.account];await vault.save();await this.deps.atomicJSON(join(this.home,'state.json'),state);accepted={account:input.account,id:ext.operation.id};return {accepted:true,positions:rows.length,capturedAt:ext.capture.capturedAt,...extrasResult};
    }
    if(action==='error'){
     ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true};

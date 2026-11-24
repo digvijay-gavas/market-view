@@ -5,6 +5,7 @@ import {DriveReader} from '../src/drive.js';
 import {buildPortfolio,validateSnapshot,SNAPSHOT,newestValid} from '../src/model.js';
 import {canonical,hashJSON} from '../src/progressive.js';
 import {DriveDashboardCache,makeDriveCache} from '../src/drive-cache.js';
+import {MV_FOLDER,MV_DATASETS,MV_OWNER_FILE,MV_OWNER_DOC,MV_OWNER_NOTE} from '../src/mv-data.js';
 export const DATASETS={
  'portfolio.positions':{version:1,semantics:'latest',partition:'account',hash_ignore_meta:[],max_age_hours:36},
  'market.prices':{version:1,semantics:'latest',partition:'shared',hash_ignore_meta:[],max_age_hours:1},
@@ -21,7 +22,10 @@ export class FileBodyCache{
  async set(key,value){await mkdir(this.home,{recursive:true,mode:0o700});await writeFile(join(this.home,encodeURIComponent(key)+'.json'),JSON.stringify(value),{mode:0o600});}
 }
 export class Publisher extends DriveReader{
- constructor(token,rootId,options={}){super(token,options);this.rootId=rootId;this.mutateFetch=options.fetcher||fetch;}
+ constructor(token,rootId,options={}){super(token,options);this.rootId=rootId;this.mutateFetch=options.fetcher||fetch;this.options=options;this.datasets=options.datasets||DATASETS;}
+ // market-view's own captures go to market-data/market-view-data, never into the Market app's datasets.
+ async marketViewData(){const id=await this.folder(MV_FOLDER,this.rootId);
+  if(!(await this.children([id])).some(f=>f.name===MV_OWNER_FILE)){await this.jsonFile(MV_OWNER_FILE,id,{...MV_OWNER_DOC,created_at:new Date().toISOString()},{immutable:true});await this.mutation('/files/'+encodeURIComponent(id)+'?supportsAllDrives=true&fields=id',{method:'PATCH',body:{description:MV_OWNER_NOTE}});}const sub=new Publisher(this.token,id,{...this.options,datasets:{...DATASETS,...MV_DATASETS}});sub.store=this;return sub;}
  async mutation(path,{method='POST',body,upload=false}={}){
   const url='https://www.googleapis.com/'+(upload?'upload/drive/v3':'drive/v3')+path;
   const response=await this.mutateFetch(url,{method,headers:{Authorization:'Bearer '+this.token,'Content-Type':'application/json'},body:JSON.stringify(body),signal:this.signal||AbortSignal.timeout(30000),credentials:'omit'});
@@ -42,9 +46,9 @@ export class Publisher extends DriveReader{
  }
  async ensureCatalog(){
   const id=await this.folder('_schema',this.rootId),files=(await this.children([id])).filter(f=>f.name==='catalog.json');
-  const existing=files.length?await this.readJSON(files[0]):{store_version:1,datasets:{'groww.live_holdings':{version:1,semantics:'latest',max_age_hours:24}}};
+  const existing=files.length?await this.readJSON(files[0]):{store_version:1,datasets:this.datasets===DATASETS?{'groww.live_holdings':{version:1,semantics:'latest',max_age_hours:24}}:{}};
   if(existing.store_version!==1)throw new Error('STORE_SCHEMA_UNSUPPORTED');let changed=!files.length;
-  for(const [name,schema]of Object.entries(DATASETS)){if(existing.datasets[name]&&existing.datasets[name].version!==1)throw new Error('STORE_SCHEMA_UNSUPPORTED');if(!existing.datasets[name]){existing.datasets[name]=schema;changed=true;}}
+  for(const [name,schema]of Object.entries(this.datasets)){if(existing.datasets[name]&&existing.datasets[name].version!==1)throw new Error('STORE_SCHEMA_UNSUPPORTED');if(!existing.datasets[name]){existing.datasets[name]=schema;changed=true;}}
   if(changed)await this.jsonFile('catalog.json',id,existing);return existing;
  }
  async latest(dataset,partition){
@@ -52,10 +56,10 @@ export class Publisher extends DriveReader{
   const parts=(await this.children(roots.map(f=>f.id))).filter(f=>f.name===partition&&f.mimeType==='application/vnd.google-apps.folder');if(!parts.length)return null;
   const files=(await this.children(parts.map(f=>f.id))).filter(f=>SNAPSHOT.test(f.name));return newestValid(files,f=>this.readJSON(f),dataset,partition);
  }
- async publish(dataset,partition,tables,meta={},at=new Date()){
+ async publish(dataset,partition,tables,meta={},at=new Date(),{asOf}={}){
   if(!/^[a-z0-9_-]+$/.test(partition))throw new Error('INVALID_PARTITION');
-  if(![...Object.keys(DATASETS),'groww.live_holdings'].includes(dataset))throw new Error('INVALID_DATASET');
-  const doc={store_version:1,schema_version:1,dataset,partition,source:dataset==='market.prices'?'market':'groww',method:dataset==='market.prices'?'api':'scrape',captured_at:at.toISOString(),as_of:new Date(+at+330*60000).toISOString().slice(0,10),writer:hostname().toLowerCase().replace(/[^a-z0-9_-]/g,'-'),producer:'market-view-collector/1',meta,tables};
+  if(![...Object.keys(this.datasets),...(this.datasets===DATASETS?['groww.live_holdings']:[])].includes(dataset))throw new Error('INVALID_DATASET');
+  const doc={store_version:1,schema_version:1,dataset,partition,source:dataset==='market.prices'?'market':dataset==='bm.weights'?'smallcase':'groww',method:dataset==='market.prices'?'api':dataset==='pnl.lots'?'export':'scrape',captured_at:at.toISOString(),as_of:asOf||new Date(+at+330*60000).toISOString().slice(0,10),writer:hostname().toLowerCase().replace(/[^a-z0-9_-]/g,'-'),producer:'market-view-collector/1',meta,tables};
   doc.content_hash=await hashJSON(Object.fromEntries(['dataset','schema_version','partition','as_of','meta','tables'].map(k=>[k,doc[k]])));
   if(dataset!=='portfolio.position_changes')validateSnapshot(doc,dataset,partition);
   const previous=dataset==='portfolio.position_changes'?null:await this.latest(dataset,partition);

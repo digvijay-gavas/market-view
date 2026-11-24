@@ -305,6 +305,25 @@ function renderDonut(p){
  for(const a of rows){const li=text('li','');const key=text('i','','donut-key');key.style.background=colors.get(a.name);li.append(key,text('span',a.name,'donut-name'),text('span',(a.value/total*100).toFixed(1)+'%','donut-share'),text('span',money(a.value),'donut-value'));legend.append(li);}
  wrap.append(chart,legend);
 }
+// BM weights: each constituent's target next to your current share of BM holdings.
+function renderBmWeights(p){
+ const card=$('bm-card'),list=$('bm-weights');card.hidden=!p.bm?.available;list.replaceChildren();if(card.hidden)return;
+ const rows=[...p.positions.filter(r=>r.bmState==='member'),...(p.accounts.length?p.bm.pending||[]:[])].filter(r=>numeric(r.bmTarget)).sort((a,b)=>b.bmTarget-a.bmTarget);
+ $('bm-title').textContent=p.bm.name||'BM weights';
+ $('bm-meta').textContent=[p.bm.asOf&&'Rebalanced '+p.bm.asOf,p.bm.capturedAt&&'weights captured '+ago(p.bm.capturedAt),rows.length+' stocks'].filter(Boolean).join(' · ');
+ const scale=Math.max(1,...rows.map(r=>Math.max(r.bmTarget,numeric(r.bmWeight)?r.bmWeight:0)))*1.08;
+ const head=text('div','','bm-row bm-head');head.setAttribute('role','row');for(const h of ['Stock','Yours vs target','Yours','Target','Diff.']){const c=text('span',h);c.setAttribute('role','columnheader');head.append(c);}list.append(head);
+ for(const r of rows){
+  const row=text('div','','bm-row'+(r.bmState==='missing'?' bm-missing':''));row.setAttribute('role','row');
+  const mine=numeric(r.bmWeight)?r.bmWeight:null,track=text('span','','bm-track'),bar=text('i','','bm-bar'),mark=text('i','','bm-target');
+  bar.style.width=(mine===null?0:mine/scale*100).toFixed(1)+'%';mark.style.left=(r.bmTarget/scale*100).toFixed(1)+'%';track.append(bar,mark);
+  const diff=numeric(r.bmDrift)?r.bmDrift:null;
+  row.title=`${r.name}
+Target ${r.bmTarget.toFixed(2)}% · yours ${mine===null?'unknown':mine.toFixed(2)+'%'}`;
+  const cells=[text('span',r.name+(r.bmState==='missing'?' · not held':''),'bm-name'),track,text('span',mine===null?'—':mine.toFixed(1)+'%','bm-num'),text('span',r.bmTarget.toFixed(1)+'%','bm-num'),text('span',diff===null?'—':(diff>=0?'+':'')+diff.toFixed(1),'bm-num bm-diff')];
+  for(const c of cells){c.setAttribute('role','cell');row.append(c);}list.append(row);
+ }
+}
 // Update race: how long ago each account's positions (bar) and prices (thin bar) were refreshed.
 function renderRace(){
  const now=Date.now(),selected=selectedSnapshots(),rows=selected.map(s=>{
@@ -326,7 +345,7 @@ function renderRace(){
 }
 function renderDetails(){
  if(!store)return;const p=current(),small=innerWidth<700||innerHeight<650,sourceSize=small?1:3,warningSize=small?1:2;
- renderDonut(p);renderRace();
+ renderDonut(p);renderRace();renderBmWeights(p);
  $('largest').replaceChildren();for(const r of p.positions.slice(0,5))bar($('largest'),r.name,r.value,r.weight,'violet');
  const selected=selectedSnapshots();
  sourcePage=pageControls('source-pages',sourcePage,Math.ceil(selected.length/sourceSize),page=>{sourcePage=page;renderDetails();});

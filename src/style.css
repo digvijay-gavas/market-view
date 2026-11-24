@@ -26,6 +26,10 @@
 #view-overview .stat{padding:20px 16px}#view-overview .stat .eyebrow{min-height:26px;font-size:9px}
 .overview-note{margin:0;flex:1;max-height:210px;padding:25px}.overview-note h3{margin-bottom:12px}.overview-note p{max-width:750px}
 .view-panel .card{margin-bottom:0;min-height:0}
+/* Data tab holds several full cards (BM, race, sources, warnings): scroll instead of squeezing them. */
+#view-data{overflow-y:auto}
+#view-data>.card{flex:none}
+#view-data>.source-card{flex:1 0 auto}
 .positions{display:flex;flex-direction:column;flex:1;gap:0;padding:20px}
 .positions>.section-head{flex:none;flex-direction:row;align-items:center;margin:0 0 12px}.positions h3{margin:0;font-size:18px}.positions .eyebrow{display:none}
 .stock-list{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
@@ -196,6 +200,20 @@
 .race-key-pos{height:8px;background:var(--accent)}.race-key-price{height:3px;background:#3987e5}
 .race-note{margin:12px 0 0}
 
+/* BM weights */
+.bm-meta{margin:2px 0 12px}
+.bm-weights{display:grid;gap:7px}
+.bm-row{display:grid;grid-template-columns:minmax(90px,1.3fr) minmax(80px,2fr) 52px 52px 46px;gap:10px;align-items:center;font-size:13px}
+.bm-head{font-size:11px;color:var(--muted);padding-bottom:2px;border-bottom:1px solid var(--line)}
+.bm-head span:nth-child(n+3){text-align:right}
+.bm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bm-missing .bm-name{color:var(--muted)}
+.bm-track{position:relative;height:10px;background:#20272a;border-radius:4px}
+.bm-bar{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:0 4px 4px 0}
+.bm-target{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--text);border-radius:1px}
+.bm-key-target{display:inline-block;width:2px;height:12px;background:var(--text);border-radius:1px}
+.bm-num{text-align:right;font-variant-numeric:tabular-nums}
+.bm-diff{color:var(--muted)}
 @media (max-width:640px){
  .topbar{flex-wrap:nowrap;gap:8px}
  .brand span{display:none}
@@ -206,6 +224,7 @@
  .donut-legend{width:100%}
  .race-row{grid-template-columns:56px 1fr 64px;gap:8px}
  .race-axis{margin:0 72px 0 64px}
+ .bm-row{grid-template-columns:minmax(70px,1fr) minmax(60px,1.2fr) 42px 42px 38px;gap:6px;font-size:12px}
 }
 @media (max-width:360px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.seg button{padding:3px 7px}.live-row{gap:4px}}
 .status-row{margin-bottom:12px}.status-row .status{padding:10px 0 0;min-height:0}

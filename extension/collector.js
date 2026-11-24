@@ -1,4 +1,5 @@
 import {probePage,extractHoldings,HOLDINGS_URL,fillPinInPage,scrollHoldings} from './holdings.js';
+import {captureSmallcase,capturePnl,discardDownload} from './extras.js';
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=code=>{throw new Error(code);};
 export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.now,timeoutMs=90000,windowId}={}){
@@ -23,6 +24,15 @@ export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.n
 }
 export async function collectCycle(chromeApi,api,manual=false,options={}){
  const plan=await api('poll',{manual,...(options.runnerTicket?{runnerTicket:options.runnerTicket}:{})});if(plan.action!=='capture')return {state:plan.action,reason:plan.reason,account:plan.account};
- try{const capture=await captureHoldings(chromeApi,api,plan,options),result=await api('result',{...capture,requestId:plan.requestId});return {state:'captured',positions:result.positions,capturedAt:result.capturedAt,account:plan.account};}
+ try{
+  const capture=await captureHoldings(chromeApi,api,plan,options);
+  // Extras never fail the positions capture; each reports its own error code instead.
+  const extras={};
+  if(Array.isArray(plan.smallcases)&&plan.smallcases.length){extras.smallcases=[];for(const id of plan.smallcases)extras.smallcases.push(await captureSmallcase(chromeApi,id,options).catch(()=>({id,error:'SMALLCASE_FAILED'})));}
+  if(plan.pnl)extras.pnl=await capturePnl(chromeApi,options).catch(()=>({error:'PNL_FAILED'}));
+  const result=await api('result',{...capture,extras,requestId:plan.requestId});
+  if(extras.pnl?.downloadId!==undefined&&result.pnlRead)await discardDownload(chromeApi,extras.pnl.downloadId);
+  return {state:'captured',positions:result.positions,capturedAt:result.capturedAt,account:plan.account,pnl:result.pnl||null,bm:result.bm||null};
+ }
  catch(error){const code=/^[A-Z_]+$/.test(error.message||'')?error.message:'GROWW_UNAVAILABLE';await api('error',{requestId:plan.requestId,code}).catch(()=>{});return {state:'attention',reason:code,account:plan.account};}
 }

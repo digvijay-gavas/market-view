@@ -9,6 +9,7 @@ import {Publisher,FileBodyCache,accessToken} from './drive.mjs';
 import {positionRows,positionChanges} from '../src/progressive.js';
 import {extensionCapture} from './extension-inbox.mjs';
 import {runSummary} from './run-status.mjs';
+import {publishExtras} from './extras.mjs';
 export async function readJSON(path,fallback){try{return JSON.parse(await readFile(path,'utf8'));}catch(error){if(error.code==='ENOENT')return fallback;throw error;}}
 export async function lock(home,name='run.lock'){
  const dir=join(home,name);await mkdir(home,{recursive:true,mode:0o700});
@@ -31,9 +32,11 @@ export async function runCycle({config,state,vault,publisher,home,calendar,now=n
  if(!config.rootId)throw new Error('STORE_ROOT_REQUIRED');
  state.positions||={};state.blocked||={};state.instruments||={};state.accounts||={};
  const checkpoint={version:1,writer:hostname(),startedAt:now.toISOString(),positionAccounts:[],quoteState:'pending'};
- await publisher.ensureCatalog();const baselines=[];
+ // Everything market-view writes lives in market-data/market-view-data; the root (the Market app's
+ // datasets, and copies older collector builds left there) is only read, as a fallback baseline.
+ const store=await publisher.marketViewData();await store.ensureCatalog();const baselines=[];
  for(const account of config.accounts.filter(a=>a.enabled!==false)){
-  let previous=await publisher.latest('portfolio.positions',account.id);
+  let previous=await store.latest('portfolio.positions',account.id)||await publisher.latest('portfolio.positions',account.id);
   if(!previous){const legacy=await publisher.latest('groww.live_holdings',account.id);if(legacy)previous={...legacy,dataset:'portfolio.positions',tables:{positions:positionRows(legacy)}};}
   const currentDay=previous?ist(new Date(previous.captured_at)).day:null;
   const needs=positionsNow||currentDay!==plan.day;
@@ -42,30 +45,32 @@ export async function runCycle({config,state,vault,publisher,home,calendar,now=n
    try{
     const captureResult=(account.captureMode||config.collectionMode)==='extension'?extensionCapture(vault.data.accounts[account.id],now):await capture(home,account,vault.data.accounts[account.id],{channel:config.browserChannel,headless:true,onPinAttempt:async()=>{vault.data.accounts[account.id].pinAttemptPending=true;await vault.save();}});
     const capturedAt=captureResult.capturedAt?new Date(captureResult.capturedAt):now;
-    const published=await publisher.publish('portfolio.positions',account.id,{positions:captureResult.rows},{},capturedAt);
-    if(previous){const changes=positionChanges(previous,published.doc);if(changes.length)await publisher.publish('portfolio.position_changes',account.id,{changes},{interval_start:previous.captured_at,interval_end:capturedAt.toISOString(),note:'Observed position changes; not verified trades.'},capturedAt);}
-    if(config.legacyCompatibility!==false){const rows=captureResult.rows.map(r=>({groww_slug:r.groww_slug,name:r.name,qty:r.qty,avg_price:r.avg_price,ltp:r.reference_price,current_value:r.reference_value,invested:r.invested}));await publisher.publish('groww.live_holdings',account.id,{holdings:rows},{},capturedAt);}
+    const published=await store.publish('portfolio.positions',account.id,{positions:captureResult.rows},{},capturedAt);
+    if(previous){const changes=positionChanges(previous,published.doc);if(changes.length)await store.publish('portfolio.position_changes',account.id,{changes},{interval_start:previous.captured_at,interval_end:capturedAt.toISOString(),note:'Observed position changes; not verified trades.'},capturedAt);}
     const secret=vault.data.accounts[account.id];if(captureResult.storageState!==undefined)secret.storageState=captureResult.storageState;secret.restore=false;secret.pinAttemptPending=false;
     previous=published.doc;state.positions[account.id]={day:ist(capturedAt).day,capturedAt:capturedAt.toISOString(),hash:published.doc.content_hash};state.accounts[account.id]='ok';
    }catch(error){const code=['EXTENSION_NOT_PAIRED','EXTENSION_CAPTURE_REQUIRED','PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED','PARTIAL_HOLDINGS','HOLDINGS_TIMEOUT'].includes(error.code)?error.code:'POSITION_CAPTURE_FAILED';state.accounts[account.id]=code;if(['PIN_REJECTED','PIN_REQUIRED','PIN_INPUT_CHANGED','AUTH_REQUIRED','PROFILE_SETUP_REQUIRED'].includes(code))state.blocked[account.id]=code;}
   }else state.accounts[account.id]=state.blocked[account.id]||'reused';
+  // BM weights / P&L lots captured alongside positions go to market-data/market-view-data.
+  const ext=vault.data.accounts[account.id]?.extension;
+  if(ext?.pendingExtras)try{await publishExtras(ext,account.id,async()=>store);}catch{ext.extrasStatus||={};ext.extrasStatus.publishError='EXTRAS_PUBLISH_FAILED';}
   await vault.save();await persist(state);
   if(previous)baselines.push(previous);
   checkpoint.positionAccounts.push({account:account.id,state:state.accounts[account.id],capturedAt:previous?.captured_at||null});
  }
  if(!baselines.length)throw new Error('NO_POSITION_BASELINE');
- const priorPrices=await publisher.latest('market.prices','shared');
+ const priorPrices=await store.latest('market.prices','shared')||await publisher.latest('market.prices','shared');
  let priceResult;
  if(config.pricesEnabled===false)checkpoint.quoteState='disabled';
  else try{
   priceResult=await quotes(universe(baselines),{provider:config.priceProvider,instruments:state.instruments,token:vault.data.growwApi?.token,previous:priorPrices?.tables.quotes||[],now});
   state.instruments=priceResult.instruments;checkpoint.quoteState=priceResult.fresh?'updated':'stale';checkpoint.freshQuotes=priceResult.fresh;checkpoint.failedQuotes=priceResult.failures.length;
-  if(priceResult.fresh)await publisher.publish('market.prices','shared',{quotes:priceResult.quotes},{provider:config.priceProvider},now);
+  if(priceResult.fresh)await store.publish('market.prices','shared',{quotes:priceResult.quotes},{provider:config.priceProvider},now);
  }catch{checkpoint.quoteState='PRICE_FETCH_FAILED';}
  const cacheResult=await publisher.compileCache();checkpoint.cache=cacheResult.reused?'reused':'rebuilt';
  for(const account of config.accounts){const ext=vault.data.accounts[account.id]?.extension;if(ext?.capture?.requestId&&ext.operation?.captureRequestId===ext.capture.requestId&&state.positions[account.id]?.capturedAt===ext.capture.capturedAt)Object.assign(ext.operation,{phase:'succeeded',completedAt:new Date().toISOString(),publishState:'published',error:null});}
  delete state.lastError;state.lastRunSummary=runSummary(checkpoint);state.lastRunAt=now.toISOString();state.nextRunAt=new Date(+now+Math.max(nextDelay(config.schedule),priceResult?.retryAfterMs||0)).toISOString();
- checkpoint.completedAt=new Date().toISOString();checkpoint.nextRunAt=state.nextRunAt;await publisher.status(checkpoint);await vault.save();
+ checkpoint.completedAt=new Date().toISOString();checkpoint.nextRunAt=state.nextRunAt;await store.status(checkpoint);await vault.save();
  return {ran:true,state,checkpoint};
 }
 export async function run(home,{force=false,positionsNow=false,dryRun=false}={}){
