@@ -15,5 +15,8 @@ export function duePlan(config,state,calendar,now=new Date(),force=false){
  if(!config.enabled&&!force)return {due:false,reason:'DISABLED'};
  if(!force&&!market.open)return {due:false,reason:market.reason};
  if(!force&&Date.parse(state.nextRunAt||'')>+now)return {due:false,reason:'NOT_DUE'};
- return {due:true,day:market.day,positions:config.accounts.filter(a=>a.enabled!==false&&(config.positionsCadence==='each-run'||state.positions?.[a.id]?.day!==market.day)).map(a=>a.id)};
+ const positions=config.accounts.filter(a=>a.enabled!==false&&(config.positionsCadence==='each-run'||state.positions?.[a.id]?.day!==market.day)).map(a=>a.id);
+ // With price updates off, an automatic run only exists to collect positions that are still missing today.
+ if(!force&&config.pricesEnabled===false&&!positions.length)return {due:false,reason:'POSITIONS_CURRENT'};
+ return {due:true,day:market.day,positions};
 }

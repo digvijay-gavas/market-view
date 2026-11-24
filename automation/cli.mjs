@@ -12,7 +12,7 @@ import {run,readJSON,lock,validateConfig} from './worker.mjs';
 import {openProfile,waitReady,filterState,HOLDINGS_URL} from './browser.mjs';
 import {accessToken} from './drive.mjs';
 import {DriveReader} from '../src/drive.js';
-import {installTask} from './task.mjs';
+import {installTask,setTaskEnabled} from './task.mjs';
 const exec=promisify(execFile);
 function option(args,key,fallback){const i=args.indexOf('--'+key);return i<0?fallback:args[i+1];}
 export function secretPrompt(prompt){
@@ -57,7 +57,7 @@ export async function main(args=process.argv.slice(2)){
  if(command==='run'){const result=await run(home,{force:args.includes('--force'),positionsNow:args.includes('--positions-now'),dryRun:args.includes('--dry-run')});console.log(JSON.stringify({ran:result.ran,reason:result.reason,checkpoint:result.checkpoint},null,2));return;}
  if(command==='status'){const config=await readJSON(configPath,null),state=await readJSON(join(home,'state.json'),{});console.log(JSON.stringify({home,enabled:config?.enabled,rootConfigured:Boolean(config?.rootId),accounts:config?.accounts.map(a=>({id:a.id,state:state.blocked?.[a.id]||state.accounts?.[a.id]||'not_enrolled',lastPosition:state.positions?.[a.id]?.capturedAt})),lastRunAt:state.lastRunAt,nextRunAt:state.nextRunAt,lastError:state.lastError},null,2));return;}
  const config=validateConfig(await readJSON(configPath,null));
- if(command==='disable'){config.enabled=false;await atomicJSON(configPath,config);console.log('Collector disabled.');return;}
+ if(command==='disable'){config.enabled=false;await atomicJSON(configPath,config);await setTaskEnabled(false);console.log('Collector disabled.');return;}
  const release=await lock(home);if(!release)throw new Error('COLLECTOR_BUSY');
  try{
   const vault=await new Vault(home).open();
@@ -84,7 +84,7 @@ export async function main(args=process.argv.slice(2)){
    if(!config.rootId){const reader=new DriveReader(await accessToken(vault.data.google)),folders=await reader.findStores();if(folders.length!==1)throw new Error('SET_EXACT_ROOT_ID_IN_CONFIG');config.rootId=folders[0].id;}
    await accessToken(vault.data.google);config.enabled=true;await atomicJSON(configPath,config);console.log('Collector enabled. Positions need one-time account enrollment; shared quote refresh can reuse existing snapshots.');
   }else if(command==='install'){
-   if(!config.enabled||!config.rootId||!vault.data.google?.refresh_token)throw new Error('ENABLE_COLLECTOR_FIRST');console.log('Installed task:',await installTask(home));
+   if(!config.enabled||!config.rootId||!vault.data.google?.refresh_token)throw new Error('ENABLE_COLLECTOR_FIRST');console.log('Installed task:',await installTask(home,config.schedule));
   }else if(command==='export'){
    const dest=outsideRepo(args[1]);const password=await secretPrompt('Transfer master passphrase (12+ characters, hidden): ');if(password!==await secretPrompt('Confirm passphrase (hidden): '))throw new Error('PASSPHRASES_DIFFER');
    await writeFile(dest,JSON.stringify(portableSeal({version:1,config:{...config,enabled:false},secrets:vault.data},password)),{mode:0o600,flag:'wx'});console.log('Encrypted transfer bundle created. Store it privately; do not upload it to market-data or Git.');

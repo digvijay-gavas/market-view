@@ -8,3 +8,6 @@ select{font:inherit;min-width:0;max-width:100%;width:100%;background:#fbfcfa;bor
 .account-reconciled{font-size:11px;color:#627660;margin:0 0 14px}.account-meta{min-height:0}
 
 #frequency-form{margin:18px 0}#frequency-form select{display:block;width:100%;padding:10px;margin:6px 0 14px;border:1px solid #cbd5d1;border-radius:8px;background:white;color:inherit;font:inherit}#frequency-form input{margin-bottom:12px}.sync-history{list-style:none;padding:0;margin:12px 0}.sync-history li{padding:12px 0;border-top:1px solid #e1e7e4}.sync-history p{font-size:12px;margin:4px 0;overflow-wrap:anywhere}.sync-history strong{font-size:13px}
+
+label.check{display:flex;gap:8px;align-items:center;font-weight:inherit}
+label.check input{width:auto;margin:0}
