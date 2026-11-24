@@ -24,3 +24,23 @@ export function fillPinInPage(pin){
  if(whole.length===1)set(whole[0],pin);else if(split.length===4)split.forEach((el,i)=>set(el,pin[i]));else return {error:'PIN_INPUT_CHANGED'};
  const buttons=visible('button').filter(el=>/^(?:unlock|verify|continue|submit)(?: pin)?$/i.test(el.textContent.trim()));if(buttons.length===1)buttons[0].click();return {filled:true};
 }
+// Holdings from the page's own response (kept by holdings-hook.js), priced from the rows that rendered.
+// Rows Groww has not rendered yet get Groww's public last price (no sign-in, same origin).
+// Runs in the page's MAIN world.
+export async function holdingsFromResponse(){
+ const kept=window.__mvHoldings;if(!kept||!Array.isArray(kept.holdings))return null;
+ const num=s=>Number(String(s).replace(/,/g,''));
+ const rx=/^(.+?)([\d,]+)\s*shares\s*Avg\.\s*₹\s*([\d,]+\.\d+)\s*₹\s*([\d,]+\.\d{2})\s*([-+]?[\d,.]+)\s*\(([-+]?[\d.]+)%\)\s*([-+]?)₹\s*([\d,]+\.\d{2})\s*([-+]?[\d.]+)%\s*₹\s*([\d,]+\.\d{2})\s*₹\s*([\d,]+\.\d{2})/;
+ const shown=new Map();
+ for(const node of document.querySelectorAll('tr[class*="holdingRow_tablerow"]')){const a=node.querySelector('a[href*="/stocks/"]'),m=node.textContent.replace(/\s+/g,' ').trim().match(rx);if(a&&m)shown.set(a.getAttribute('href').split('/stocks/')[1].split(/[?#]/)[0],{price:num(m[4]),value:num(m[10])});}
+ const rows=[];let fetched=0;
+ for(const h of kept.holdings){
+  if(typeof h.slug!=='string'||!h.slug||typeof h.name!=='string'||!Number.isFinite(h.qty)||h.qty<=0||!Number.isFinite(h.avgPaise))return {error:'PARTIAL_HOLDINGS',detail:{reason:'row-format',row:rows.length+1,rows:kept.holdings.length}};
+  const avg=h.avgPaise/100,invested=Math.round(h.qty*avg*100)/100;let price=shown.get(h.slug)?.price??null;
+  if(price===null&&(h.nse||h.bse)){try{const ex=h.nse?'NSE':'BSE',r=await fetch('/v1/api/stocks_data/v1/accord_points/exchange/'+ex+'/segment/CASH/latest_prices_ohlc/'+encodeURIComponent(h.nse||h.bse),{credentials:'omit'});const ltp=r.ok?Number((await r.json())?.ltp):NaN;if(Number.isFinite(ltp)&&ltp>0){price=ltp;fetched++;}}catch{}}
+  rows.push({groww_slug:h.slug,name:h.name,qty:h.qty,avg_price:avg,reference_price:price,reference_value:price===null?null:Math.round(price*h.qty*100)/100,invested});
+ }
+ const expected=(document.body.innerText.match(/HOLDINGS\s*\((\d+)\)/i)||[])[1];
+ if(expected!==undefined&&Number(expected)!==rows.length)return {error:'PARTIAL_HOLDINGS',detail:{reason:'count-mismatch',rows:rows.length,expected:Number(expected)}};
+ return {rows,source:'response',rendered:shown.size,priced:fetched};
+}

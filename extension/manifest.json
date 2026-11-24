@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Market Family Collector",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "minimum_chrome_version": "120",
   "description": "Collect Groww holdings, P&L lots and BM weights from this signed-in Chrome profile for your paired local Market collector.",
   "permissions": [
@@ -39,6 +39,16 @@
         "local-runner.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://groww.in/stocks/user/holdings*"
+      ],
+      "js": [
+        "holdings-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }

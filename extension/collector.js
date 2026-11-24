@@ -1,10 +1,10 @@
-import {probePage,extractHoldings,HOLDINGS_URL,fillPinInPage,scrollHoldings} from './holdings.js';
+import {probePage,extractHoldings,HOLDINGS_URL,fillPinInPage,scrollHoldings,holdingsFromResponse} from './holdings.js';
 import {captureSmallcase,capturePnl,discardDownload} from './extras.js';
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=code=>{throw new Error(code);};
 export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.now,timeoutMs=90000,windowId}={}){
  const tab=await chromeApi.tabs.create({url:HOLDINGS_URL,active:false,...(Number.isInteger(windowId)?{windowId}:{})});let attempted=false,empty=0,stable=0,previous=-1;
- const evaluate=async(func,args=[])=>{const current=await chromeApi.tabs.get(tab.id);if(!current.url?.startsWith('https://groww.in/'))fail('AUTH_REQUIRED');const result=await chromeApi.scripting.executeScript({target:{tabId:tab.id},func,args});return result[0]?.result;};
+ const evaluate=async(func,args=[],world)=>{const current=await chromeApi.tabs.get(tab.id);if(!current.url?.startsWith('https://groww.in/'))fail('AUTH_REQUIRED');const result=await chromeApi.scripting.executeScript({target:{tabId:tab.id},func,args,...(world?{world}:{})});return result[0]?.result;};
  try{
   const deadline=now()+timeoutMs;
   while(now()<deadline){
@@ -13,6 +13,10 @@ export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.n
    if(probe.pin){if(attempted)fail('PIN_REJECTED');attempted=true;let response=await api('unlock',{requestId:plan.requestId});let pin=response.pin;response=null;try{const result=await evaluate(fillPinInPage,[pin]);if(result?.error)fail(result.error);}finally{pin=null;}await delay(1500);continue;}
    if(probe.signedOut)fail('AUTH_REQUIRED');
    if(probe.rows&&!probe.pending){
+    // Preferred: the page's own holdings response (complete even if Groww has not rendered every row).
+    const fromResponse=await evaluate(holdingsFromResponse,[],'MAIN').catch(()=>null);
+    if(fromResponse?.rows?.length)return {rows:fromResponse.rows,emptyVerified:false,capturedAt:new Date(now()).toISOString()};
+    if(fromResponse?.error)throw Object.assign(new Error('PARTIAL_HOLDINGS'),{detail:fromResponse.detail||null});
     await evaluate(scrollHoldings);
     if(probe.rows===previous){if(++stable>=3){const parsed=await evaluate(extractHoldings);if(parsed?.error||!parsed?.rows?.length)throw Object.assign(new Error('PARTIAL_HOLDINGS'),{detail:parsed?.detail||null});return {rows:parsed.rows,emptyVerified:false,capturedAt:new Date(now()).toISOString()};}}else stable=0;
     previous=probe.rows;

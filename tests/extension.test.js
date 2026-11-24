@@ -56,5 +56,5 @@ test('worker publishes extension timestamps and never opens a browser for paired
  assert.equal(writes.find(w=>w.d==='portfolio.positions').at,'2026-11-23T03:55:00.000Z');assert.equal(writes.some(w=>w.d==='groww.live_holdings'),false,"the Market app's dataset is never written");
 });
 test('extension manifest limits access to Groww and loopback and requests no cookies or Google access',async()=>{
- const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url)));assert.deepEqual(manifest.host_permissions,['https://groww.in/*','https://smallcases.groww.in/*','http://127.0.0.1/*']);assert.equal(manifest.permissions.includes('cookies'),false);assert.equal(manifest.manifest_version,3);
+ const manifest=JSON.parse(await readFile(new URL('../extension/manifest.json',import.meta.url)));assert.ok(manifest.content_scripts.some(c=>c.world==='MAIN'&&c.matches.every(m=>m.startsWith('https://groww.in/stocks/user/holdings'))),'page hook limited to the holdings page');assert.deepEqual(manifest.host_permissions,['https://groww.in/*','https://smallcases.groww.in/*','http://127.0.0.1/*']);assert.equal(manifest.permissions.includes('cookies'),false);assert.equal(manifest.manifest_version,3);
 });
