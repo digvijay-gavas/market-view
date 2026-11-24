@@ -197,7 +197,8 @@
 .race-legend{display:flex;gap:14px;font-size:11px;color:var(--muted)}
 .race-legend span{display:flex;align-items:center;gap:6px}
 .race-key{display:inline-block;width:14px;border-radius:2px}
-.race-key-pos{height:8px;background:var(--accent)}.race-key-price{height:3px;background:#3987e5}
+.race-key-pos{height:8px;background:var(--accent)}.race-key-bm{height:8px;background:#9085e9}
+.race-bm{border-top:1px dashed var(--line);padding-top:10px}.race-bm .race-bar{background:#9085e9}.race-bm .race-track{padding:3px 0 6px}.race-key-price{height:3px;background:#3987e5}
 .race-note{margin:12px 0 0}
 
 /* BM weights */

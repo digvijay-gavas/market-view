@@ -332,13 +332,23 @@ function renderRace(){
   return {name:s.partition,pos:Math.max(0,now-Date.parse(positionsAt)),price:Math.max(0,now-Date.parse(pricesAt)),positionsAt,pricesAt};
  }).filter(r=>Number.isFinite(r.pos)).sort((a,b)=>a.pos-b.pos);
  const race=$('race');race.replaceChildren();if(!rows.length){race.append(text('p','No accounts selected.','fine'));return;}
- const scale=raceScale(Math.max(...rows.map(r=>Math.max(r.pos,Number.isFinite(r.price)?r.price:0))));
+ // BM smallcase weights race alongside the accounts (captured by the BM card's chosen profile).
+ const bm=current().bm,bmAge=bm?.available&&bm.capturedAt?Math.max(0,now-Date.parse(bm.capturedAt)):NaN;
+ const scale=raceScale(Math.max(...rows.map(r=>Math.max(r.pos,Number.isFinite(r.price)?r.price:0)),Number.isFinite(bmAge)?bmAge:0));
  for(const r of rows){
   const row=text('div','','race-row');row.title=`${r.name}\nPositions: ${stamp(r.positionsAt)}\nPrices: ${stamp(r.pricesAt)}`;
   const track=text('div','','race-track'),bar=text('div','','race-bar'),price=text('div','','race-price');
   bar.style.width=(raceProgress(r.pos,scale)*100).toFixed(1)+'%';price.style.width=(raceProgress(Number.isFinite(r.price)?r.price:r.pos,scale)*100).toFixed(1)+'%';track.append(bar,price);
   const agoText=text('span','','race-ago');agoText.append(text('strong',shortAgo(r.pos)),text('small','prices '+shortAgo(Number.isFinite(r.price)?r.price:r.pos)));
   row.append(text('span',r.name,'race-name'),track,agoText);race.append(row);
+ }
+ if(Number.isFinite(bmAge)){
+  const row=text('div','','race-row race-bm');row.title=`${bm.name||'BM'}
+Weights captured: ${stamp(bm.capturedAt)}
+Rebalanced: ${bm.asOf||'unknown'}`;
+  const track=text('div','','race-track'),bar=text('div','','race-bar');bar.style.width=(raceProgress(bmAge,scale)*100).toFixed(1)+'%';track.append(bar);
+  const agoText=text('span','','race-ago');agoText.append(text('strong',shortAgo(bmAge)),text('small',bm.asOf?'rebal. '+bm.asOf.slice(5):'weights'));
+  row.append(text('span','BM','race-name'),track,agoText);race.append(row);
  }
  const axis=text('div','','race-axis');for(const t of scale.ticks){const tick=text('span',t===0?'now':t+scale.unit);tick.style.left=((1-t/scale.max)*100).toFixed(1)+'%';axis.append(tick);}
  race.append(axis);
