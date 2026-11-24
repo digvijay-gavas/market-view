@@ -4,7 +4,7 @@ export const READ_SCOPE='https://www.googleapis.com/auth/drive.readonly';
 export const CACHE_SCOPE='https://www.googleapis.com/auth/drive';
 export const CACHE_FILE='_market-view-dashboard-cache.json';
 export const RECHECK_MS=4*3600000;
-export const CACHE_VERSION=7;
+export const CACHE_VERSION=8;
 const MAX_BYTES=24*1024*1024;
 const pick=(value,keys)=>Object.fromEntries(keys.filter(k=>value?.[k]!==undefined).map(k=>[k,value[k]]));
 const fields={holdings:['groww_slug','name','qty','invested','avg_price','ltp','current_value'],credits:['isin','ex_date','shares','amount'],open_lots:['stock_name','isin','quantity','buy_value','buy_date'],stocks:['name','weight','segment','groww_slug','isin']};

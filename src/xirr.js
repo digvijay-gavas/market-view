@@ -19,6 +19,10 @@ export function xirr(flows){
 // Holdings whose purchase lots cannot be matched exactly are left out (and listed) instead of
 // blanking the whole figure. Below MIN_COVERAGE of cost the result is withheld as unrepresentative.
 export const MIN_COVERAGE=0.5;
+// Groww rounds per-lot buy values, so lot totals drift a few rupees from the holding's invested
+// amount (seen: up to ₹3.87 over 23 lots). Allow ₹5 or 0.1% of cost; real differences
+// (corporate actions, missed trades) are far larger.
+export const costTolerance=invested=>Math.max(5,Math.abs(invested)*0.001);
 export function openHoldingsXirr(snapshots,reports=[]){
  const excluded=[],missing=reason=>({rate:null,reason,excluded,coverage:null});
  if(!snapshots.length)return missing('No holdings to calculate.');
@@ -39,7 +43,8 @@ export function openHoldingsXirr(snapshots,reports=[]){
    used.add([...ids][0]);
    if(!number(holding.qty)||!number(holding.invested)||lots.some(l=>!number(l.quantity)||l.quantity<=0||!number(l.buy_value)||l.buy_value<0||day(l.buy_date)===null||day(l.buy_date)>terminal)){skip('purchase lots are incomplete or undated');continue;}
    const quantity=lots.reduce((sum,l)=>sum+l.quantity,0),cost=lots.reduce((sum,l)=>sum+l.buy_value,0);
-   if(Math.abs(quantity-holding.qty)>1e-6||Math.abs(cost-holding.invested)>Math.max(1,0.05*lots.length)){skip(`P&L lots (${quantity} shares) differ from current holding (${holding.qty} shares); the report is likely older than a recent buy or sell`);continue;}
+   if(Math.abs(quantity-holding.qty)>1e-6){skip(`P&L lots (${quantity} shares) differ from current holding (${holding.qty} shares); the report is likely older than a recent buy or sell`);continue;}
+   if(Math.abs(cost-holding.invested)>costTolerance(holding.invested)){skip(`shares match (${quantity}) but P&L lot cost ₹${cost.toFixed(2)} differs from invested ₹${holding.invested.toFixed(2)}; possibly a bonus, split or cost adjustment`);continue;}
    const current=number(holding.current_value)?holding.current_value:number(holding.ltp)?holding.qty*holding.ltp:null;
    if(!number(current)){skip('current value missing');continue;}
    value+=current;included++;costIncluded+=holding.invested;for(const lot of lots)flows.push({date:lot.buy_date,amount:-lot.buy_value});

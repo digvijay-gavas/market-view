@@ -6,6 +6,7 @@ export const instrumentIsins=Object.freeze({
   "artemis-medicare-services-ltd": "INE025R01021",
   "bajaj-housing-finance-ltd": "INE377Y01014",
   "blue-star-ltd": "INE472A01039",
+  "caliber-mining-and-logistics-ltd": "INE11XY01018",
   "central-depository-services-india-ltd": "INE736A01011",
   "cms-info-systems-ltd": "INE925R01014",
   "eid-parry-india-ltd": "INE126A01031",

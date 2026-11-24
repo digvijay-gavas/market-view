@@ -58,3 +58,9 @@ test('one unmatched holding is left out and reported instead of blanking XIRR',a
  const mostlyMissing=calc([{...snap,tables:{holdings:[holdings[0],{...holdings[1],invested:5000}]}}],[{partition:'one',as_of:'2026-05-01',captured_at:'2026-05-01T00:00:00Z',tables:{open_lots:lots}}]);
  assert.equal(mostlyMissing.rate,null);assert.match(mostlyMissing.reason,/Only 17% of cost/);
 });
+test('lot cost rounding of a few rupees is accepted; a real cost gap with matching shares is explained',()=>{
+ const big={...capture,tables:{holdings:[{name:'Synthetic Alpha',qty:10,invested:87609.76,current_value:90000}]}};
+ const lots=cost=>({...report,tables:{open_lots:[{...report.tables.open_lots[0],buy_value:cost}]}});
+ assert.equal(openHoldingsXirr([big],[lots(87607.26)]).coverage.included,1);  // ₹2.50 rounding
+ const gap=openHoldingsXirr([big],[lots(80000)]);assert.equal(gap.coverage.included,0);assert.match(gap.excluded[0].reason,/shares match \(10\).*bonus, split/);
+});
