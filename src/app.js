@@ -2,6 +2,7 @@ import {bmRows} from './bm.js';
 import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge,reuseSharedCache} from './drive-cache.js';
 import {oauthConfig,PRICE_PROXY_URL} from './config.js';
 import {LivePrices,LIVE_MODES,applyQuotes,holdingSlugs} from './live-prices.js';
+import {raceScale,raceProgress,shortAgo,accountColors,donutSlices} from './charts.js';
 import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
 import {PortfolioCache,samePortfolio} from './cache.js';
@@ -56,7 +57,7 @@ function clearData() {
   generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();$('live-bar').hidden=true;$('topbar-pill').hidden=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
-  for(const id of ['source-pages','warning-pages','allocation-pages','data-alert','overview-detail'])$(id).replaceChildren();
+  for(const id of ['source-pages','warning-pages','data-alert','overview-detail'])$(id).replaceChildren();
   $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
   $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
@@ -67,7 +68,12 @@ function clearData() {
 function disconnect(message='Disconnected. Portfolio data has been cleared.') {
   refreshSchedule.stop();clearTimeout(expireTimer);portfolioCache?.clear();portfolioCache=null;clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
 }
-$('disconnect').addEventListener('click',()=>disconnect());
+$('disconnect').addEventListener('click',()=>{closeAppMenu();disconnect();});
+// The logo opens a small menu (Disconnect lives there to keep the top bar compact).
+function closeAppMenu(){$('app-menu').hidden=true;$('brand-button').setAttribute('aria-expanded','false');}
+$('brand-button').addEventListener('click',event=>{event.stopPropagation();if($('disconnect').hidden){location.href='./';return;}const open=$('app-menu').hidden;$('app-menu').hidden=!open;$('brand-button').setAttribute('aria-expanded',String(open));if(open)$('disconnect').focus();});
+document.addEventListener('click',event=>{if(!$('app-menu').hidden&&!event.target.closest('.app-menu'))closeAppMenu();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('app-menu').hidden){closeAppMenu();$('brand-button').focus();}});
 $('connect').addEventListener('click',()=>{
   // Every authorization is an account switch boundary. Clear old data before opening Google.
   disconnect('Opening Google account selection…');
@@ -203,11 +209,12 @@ function render() {
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
   if(p.dividendAccounts.length&&p.dividendAccounts.length<p.accounts.length)warnings.push('Dividend coverage is partial: some selected accounts have no saved dividend reports.');
+  for(const x of p.xirrExcluded||[])warnings.push(`XIRR leaves out ${x.name} (${x.account}): ${x.reason}.`);
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
   $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts.`;
   $('stats').replaceChildren();
-  const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?'Annualised · excludes sales/dividends':p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
+  const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?(p.xirrExcluded?.length&&p.xirrCoverage?`Covers ${p.xirrCoverage.included} of ${p.xirrCoverage.total} holdings · see Data`:'Annualised · excludes sales/dividends'):p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){
     const cash=label==='CASH EQUIVALENT',gold=label==='GOLD',c=text('section','',cash?'stat cash-stat':gold?'stat gold-stat':label==='CURRENT VALUE'?'stat value-stat':'stat');
     c.append(text('p',label,'eyebrow'),text('strong',value,label==='UNREALISED P&L'?(p.pnl<0?'loss':'gain'):label==='OPEN HOLDINGS XIRR'&&numeric(p.xirr)?(p.xirr<0?'loss':'gain'):''));
@@ -282,10 +289,44 @@ function pageControls(id,page,count,onChange){
  previous.disabled=page===0;next.disabled=page===pages-1;
  previous.addEventListener('click',()=>onChange(page-1));next.addEventListener('click',()=>onChange(page+1));container.append(previous,text('span',`${page+1} / ${pages}`),next);return page;
 }
+const SVG='http://www.w3.org/2000/svg';
+const svg=(tag,attrs={})=>{const e=document.createElementNS(SVG,tag);for(const [k,v]of Object.entries(attrs))e.setAttribute(k,v);return e;};
+const allAccountNames=()=>[...new Set(store.snapshots.map(s=>s.partition))];
+// Allocation donut: every selected account with its share and value; colour follows the account name.
+function renderDonut(p){
+ const colors=accountColors(allAccountNames()),rows=p.accounts.filter(a=>numeric(a.value)&&a.value>0).sort((a,b)=>b.value-a.value),total=rows.reduce((t,a)=>t+a.value,0);
+ const wrap=$('allocation');wrap.replaceChildren();
+ if(!rows.length){wrap.append(text('p','No account values to chart.','fine'));return;}
+ const chart=svg('svg',{viewBox:'0 0 200 200',class:'donut',role:'img','aria-label':'Account allocation: '+rows.map(a=>`${a.name} ${(a.value/total*100).toFixed(1)}%`).join(', ')});
+ donutSlices(rows.map(a=>a.value)).forEach((slice,i)=>{if(!slice.d)return;const path=svg('path',{d:slice.d,fill:colors.get(rows[i].name),class:'donut-slice'});const tip=svg('title');tip.textContent=`${rows[i].name}: ${money(rows[i].value)} (${(slice.share*100).toFixed(1)}%)`;path.append(tip);chart.append(path);});
+ const centre=svg('text',{x:100,y:96,'text-anchor':'middle',class:'donut-total'});centre.textContent=money(total);
+ const caption=svg('text',{x:100,y:116,'text-anchor':'middle',class:'donut-caption'});caption.textContent=rows.length+' account'+(rows.length===1?'':'s');chart.append(centre,caption);
+ const legend=text('ul','','donut-legend');
+ for(const a of rows){const li=text('li','');const key=text('i','','donut-key');key.style.background=colors.get(a.name);li.append(key,text('span',a.name,'donut-name'),text('span',(a.value/total*100).toFixed(1)+'%','donut-share'),text('span',money(a.value),'donut-value'));legend.append(li);}
+ wrap.append(chart,legend);
+}
+// Update race: how long ago each account's positions (bar) and prices (thin bar) were refreshed.
+function renderRace(){
+ const now=Date.now(),selected=selectedSnapshots(),rows=selected.map(s=>{
+  const src=store.progressiveSources?.find(p=>p.account===s.partition),positionsAt=src?.positionsAt||s.captured_at||s.confirmedAt;
+  const pricesAt=live.lastAt&&live.quotes.size?live.lastAt:(src?.pricesTo||src?.pricesFrom||positionsAt);
+  return {name:s.partition,pos:Math.max(0,now-Date.parse(positionsAt)),price:Math.max(0,now-Date.parse(pricesAt)),positionsAt,pricesAt};
+ }).filter(r=>Number.isFinite(r.pos)).sort((a,b)=>a.pos-b.pos);
+ const race=$('race');race.replaceChildren();if(!rows.length){race.append(text('p','No accounts selected.','fine'));return;}
+ const scale=raceScale(Math.max(...rows.map(r=>Math.max(r.pos,Number.isFinite(r.price)?r.price:0))));
+ for(const r of rows){
+  const row=text('div','','race-row');row.title=`${r.name}\nPositions: ${stamp(r.positionsAt)}\nPrices: ${stamp(r.pricesAt)}`;
+  const track=text('div','','race-track'),bar=text('div','','race-bar'),price=text('div','','race-price');
+  bar.style.width=(raceProgress(r.pos,scale)*100).toFixed(1)+'%';price.style.width=(raceProgress(Number.isFinite(r.price)?r.price:r.pos,scale)*100).toFixed(1)+'%';track.append(bar,price);
+  const agoText=text('span','','race-ago');agoText.append(text('strong',shortAgo(r.pos)),text('small','prices '+shortAgo(Number.isFinite(r.price)?r.price:r.pos)));
+  row.append(text('span',r.name,'race-name'),track,agoText);race.append(row);
+ }
+ const axis=text('div','','race-axis');for(const t of scale.ticks){const tick=text('span',t===0?'now':t+scale.unit);tick.style.left=((1-t/scale.max)*100).toFixed(1)+'%';axis.append(tick);}
+ race.append(axis);
+}
 function renderDetails(){
- if(!store)return;const p=current(),small=innerWidth<700||innerHeight<650,sourceSize=small?1:3,warningSize=small?1:2,chartSize=small?3:5;
- allocationPage=pageControls('allocation-pages',allocationPage,Math.ceil(p.accounts.length/chartSize),page=>{allocationPage=page;renderDetails();});
- $('allocation').replaceChildren();for(const a of p.accounts.slice(allocationPage*chartSize,(allocationPage+1)*chartSize))bar($('allocation'),a.name,a.value,numeric(p.value)&&p.value>0&&numeric(a.value)?a.value/p.value*100:null);
+ if(!store)return;const p=current(),small=innerWidth<700||innerHeight<650,sourceSize=small?1:3,warningSize=small?1:2;
+ renderDonut(p);renderRace();
  $('largest').replaceChildren();for(const r of p.positions.slice(0,5))bar($('largest'),r.name,r.value,r.weight,'violet');
  const selected=selectedSnapshots();
  sourcePage=pageControls('source-pages',sourcePage,Math.ceil(selected.length/sourceSize),page=>{sourcePage=page;renderDetails();});

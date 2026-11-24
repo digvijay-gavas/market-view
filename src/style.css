@@ -136,9 +136,16 @@
  .app-loaded .overview-note{max-height:none}.app-loaded .about-card{height:auto}
 }
 
-/* Live prices: segmented refresh toggle + icon button in the top bar, with a one-line age summary. */
-.live-bar{display:flex;flex-direction:column;align-items:flex-end;gap:3px;margin-left:auto;min-width:0}
-.live-bar+#disconnect{margin-left:0}
+/* Top bar: logo menu on the left; refresh toggle + icon right-aligned and vertically centred with it. */
+.topbar{align-items:center}
+.app-menu{position:relative;flex:none}
+.topbar .brand{flex:none;background:transparent;border:0;padding:4px 6px;min-height:0;cursor:pointer;border-radius:8px}
+.topbar .brand:hover{background:#1c2325}
+.app-menu-list{position:absolute;top:calc(100% + 6px);left:0;z-index:20;min-width:200px;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);box-shadow:0 10px 30px #0008}
+.app-menu-list button{display:block;width:100%;text-align:left;border:0;background:transparent;font-size:13px;min-height:38px;padding:8px 10px;border-radius:6px}
+.app-menu-list button:hover,.app-menu-list button:focus-visible{background:#283330}
+#disconnect{margin-left:0}
+.live-bar{display:flex;align-items:center;margin-left:auto;min-width:0}
 .live-row{display:flex;align-items:center;gap:6px}
 .seg{display:inline-flex;border:1px solid #485252;border-radius:999px;padding:2px;background:#15191b}
 .seg button{min-height:28px;padding:3px 11px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:12px;font-weight:550;line-height:1}
@@ -149,16 +156,57 @@
 .icon-btn.spinning svg{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.icon-btn.spinning svg{animation:none}}
-.live-status{margin:0;font-size:11px;line-height:1.3;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+
+/* Second row: progress/status message on the left, price & position ages on the right. */
+.status-row{display:flex;justify-content:space-between;align-items:baseline;gap:4px 14px;flex-wrap:wrap}
+.status-row .status{flex:1 1 220px;min-width:0}
+.live-status{margin:0;padding:10px 0 0;font-size:11px;line-height:1.3;color:var(--muted);text-align:right;flex:0 1 auto}
+.live-status:empty{display:none}
 .live-status.error{color:var(--red)}
+
+/* Allocation donut */
+.donut-wrap{display:grid;grid-template-columns:minmax(150px,220px) 1fr;gap:20px;align-items:center}
+.donut{width:100%;height:auto;max-width:220px}
+.donut-slice{stroke:var(--panel);stroke-width:2}
+.donut-slice:hover{opacity:.85}
+.donut-total{fill:var(--text);font-size:15px;font-weight:600}
+.donut-caption{fill:var(--muted);font-size:10px}
+.donut-legend{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+.donut-legend li{display:grid;grid-template-columns:12px 1fr auto auto;gap:10px;align-items:center;font-size:13px}
+.donut-key{width:12px;height:12px;border-radius:3px;display:block}
+.donut-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.donut-share{font-weight:600;font-variant-numeric:tabular-nums}
+.donut-value{color:var(--muted);font-variant-numeric:tabular-nums;font-size:12px}
+
+/* Update race */
+.race{display:grid;gap:12px}
+.race-row{display:grid;grid-template-columns:70px 1fr 74px;gap:10px;align-items:center}
+.race-name{font-size:13px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.race-track{position:relative;display:grid;gap:3px;background:#20272a;border-radius:4px;padding:3px 0}
+.race-bar{height:10px;background:var(--accent);border-radius:0 4px 4px 0}
+.race-price{height:3px;background:#3987e5;border-radius:0 2px 2px 0}
+.race-ago{display:grid;font-size:12px;line-height:1.25;text-align:right}
+.race-ago small{color:var(--muted);font-size:10px}
+.race-axis{position:relative;height:16px;margin:0 84px 0 80px;font-size:10px;color:var(--muted)}
+.race-axis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.race-axis span:first-child{transform:none}.race-axis span:last-child{transform:translateX(-100%)}
+.race-legend{display:flex;gap:14px;font-size:11px;color:var(--muted)}
+.race-legend span{display:flex;align-items:center;gap:6px}
+.race-key{display:inline-block;width:14px;border-radius:2px}
+.race-key-pos{height:8px;background:var(--accent)}.race-key-price{height:3px;background:#3987e5}
+.race-note{margin:12px 0 0}
+
 @media (max-width:640px){
  .topbar{flex-wrap:nowrap;gap:8px}
  .brand span{display:none}
- .seg button{padding:3px 8px;font-size:11px;min-height:26px}
- .icon-btn{width:30px;height:30px;min-height:30px}
- .live-status{font-size:10px}
- #disconnect{padding:4px 8px;font-size:10px;min-height:28px}
+ .seg button{padding:3px 9px;font-size:12px;min-height:28px}
+ .icon-btn{width:32px;height:32px;min-height:32px}
+ .donut-wrap{grid-template-columns:1fr;justify-items:center}
+ .donut{max-width:190px}
+ .donut-legend{width:100%}
+ .race-row{grid-template-columns:56px 1fr 64px;gap:8px}
+ .race-axis{margin:0 72px 0 64px}
 }
-.topbar .brand{flex:none}
-@media (max-width:360px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.seg button{padding:3px 6px}.live-row{gap:4px}#disconnect{padding:4px 6px}}
-@media (max-width:640px){.live-status{white-space:normal;overflow:visible}}
+@media (max-width:360px){.topbar{gap:6px;padding-left:10px;padding-right:10px}.seg button{padding:3px 7px}.live-row{gap:4px}}
+.status-row{margin-bottom:12px}.status-row .status{padding:10px 0 0;min-height:0}
+@media (max-width:640px){.status-row{gap:2px 12px}.status-row .status{font-size:12px}.live-status{padding-top:2px;text-align:left}}
