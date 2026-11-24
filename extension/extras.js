@@ -14,8 +14,19 @@ export function clickText(want){
  const target=el.closest('button,a,[role="button"],[role="tab"]')||el;target.click();return true;
 }
 export function probeSmallcase(){
- const text=document.body?.innerText||'';
- return {ready:/Stocks & Weights/.test(text),rows:document.querySelectorAll('[class*="StocksWeights__constituent"]').length,signedOut:/\bLog ?in\b|\bSign ?up\b|Login to/i.test(text)&&!/Stocks & Weights/.test(text),notSubscribed:/\bSubscribe\b/.test(text)&&!/\bSubscribed\b/.test(text)};
+ const text=document.body?.innerText||'',visible=el=>el&&el.getClientRects().length>0;
+ // Signed out: the header shows smallcase's Login button. Signed in without a subscription: the
+ // constituents are replaced by "Invitation Required / Request Invite".
+ const login=[...document.querySelectorAll('button[class*="LoginButton"]')].find(visible)||[...document.querySelectorAll('button')].find(b=>visible(b)&&b.textContent.trim()==='Login');
+ return {host:location.hostname,ready:/Stocks & Weights/.test(text),rows:document.querySelectorAll('[class*="StocksWeights__constituent"]').length,signedOut:Boolean(login),
+  notSubscribed:!login&&/Invitation Required|Request Invite/i.test(text),
+  // Groww's one-time "Authorize SmallCase to access Groww API" screen grants order access: never approved by automation.
+  consent:location.hostname==='groww.in'&&/Authorize\s+SmallCase/i.test(text),
+  growwSignedOut:location.hostname==='groww.in'&&!/Authorize/i.test(text)&&/\bLog ?in\b/i.test(text)};
+}
+export function clickSmallcaseLogin(){
+ const b=[...document.querySelectorAll('button[class*="LoginButton"]')].find(el=>el.getClientRects().length)||[...document.querySelectorAll('button')].find(el=>el.getClientRects().length&&el.textContent.trim()==='Login');
+ if(!b)return false;b.click();return true;
 }
 export function scrollToBottom(){window.scrollTo(0,document.body.scrollHeight);}
 // Port of the Market app's scripts/smallcase_extract.js (same rules, same failure mode:
@@ -46,11 +57,17 @@ async function loaded(chromeApi,tabId,host){const t=await chromeApi.tabs.get(tab
 export async function captureSmallcase(chromeApi,id,{delay=pause,timeoutMs=90000,windowId,now=Date.now}={}){
  const tab=await openTab(chromeApi,SMALLCASE_URL(id),windowId);
  try{
-  const deadline=now()+timeoutMs;let tabbed=false,stable=0,previous=-1;
+  const deadline=now()+timeoutMs;let tabbed=false,stable=0,previous=-1,loginClicked=false;
   while(now()<deadline){
-   await delay(1500);if(!await loaded(chromeApi,tab.id,'https://smallcases.groww.in/'))continue;
-   const p=await run(chromeApi,tab.id,probeSmallcase);
-   if(p.signedOut)return {id,error:'SMALLCASE_AUTH_REQUIRED'};if(p.notSubscribed)return {id,error:'SMALLCASE_NOT_SUBSCRIBED'};
+   await delay(1500);const t=await chromeApi.tabs.get(tab.id);if(t.status!=='complete'||!/^https:\/\/(smallcases\.)?groww\.in\//.test(t.url||''))continue;
+   const p=await run(chromeApi,tab.id,probeSmallcase);if(!p)continue;
+   // smallcase signs in through Groww (OAuth using this profile's Groww session): click its Login once.
+   if(p.consent)return {id,error:'SMALLCASE_CONSENT_REQUIRED'};if(p.growwSignedOut)return {id,error:'AUTH_REQUIRED'};
+   if(p.host!=='smallcases.groww.in')continue;
+   if(p.signedOut){if(loginClicked)return {id,error:'SMALLCASE_AUTH_REQUIRED'};loginClicked=true;await run(chromeApi,tab.id,clickSmallcaseLogin);await delay(4000);continue;}
+   if(p.notSubscribed)return {id,error:'SMALLCASE_NOT_SUBSCRIBED'};
+   // After sign-in smallcase may land on another page; return to the constituents page.
+   if(loginClicked&&!t.url.includes('/smallcase/')){await chromeApi.tabs.update(tab.id,{url:SMALLCASE_URL(id)});continue;}
    if(!p.ready)continue;
    if(!tabbed){await run(chromeApi,tab.id,clickText,['Stocks & Weights']);tabbed=true;await delay(3000);await run(chromeApi,tab.id,clickText,['Understood']);continue;}
    await run(chromeApi,tab.id,scrollToBottom);

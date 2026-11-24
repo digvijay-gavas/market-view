@@ -24,15 +24,21 @@ export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.n
 }
 export async function collectCycle(chromeApi,api,manual=false,options={}){
  const plan=await api('poll',{manual,...(options.runnerTicket?{runnerTicket:options.runnerTicket}:{})});if(plan.action!=='capture')return {state:plan.action,reason:plan.reason,account:plan.account};
- try{
-  const capture=await captureHoldings(chromeApi,api,plan,options);
-  // Extras never fail the positions capture; each reports its own error code instead.
-  const extras={};
+ // Extras (BM weights, P&L export) are independent of the holdings read: each reports its own
+ // error, and they are still sent when the holdings capture itself fails.
+ const runExtras=async()=>{const extras={};
   if(Array.isArray(plan.smallcases)&&plan.smallcases.length){extras.smallcases=[];for(const id of plan.smallcases)extras.smallcases.push(await captureSmallcase(chromeApi,id,options).catch(()=>({id,error:'SMALLCASE_FAILED'})));}
-  if(plan.pnl)extras.pnl=await capturePnl(chromeApi,options).catch(()=>({error:'PNL_FAILED'}));
+  if(plan.pnl)extras.pnl=await capturePnl(chromeApi,options).catch(()=>({error:'PNL_FAILED'}));return extras;};
+ let extras=null;
+ try{
+  const capture=await captureHoldings(chromeApi,api,plan,options);extras=await runExtras();
   const result=await api('result',{...capture,extras,requestId:plan.requestId});
   if(extras.pnl?.downloadId!==undefined&&result.pnlRead)await discardDownload(chromeApi,extras.pnl.downloadId);
   return {state:'captured',positions:result.positions,capturedAt:result.capturedAt,account:plan.account,pnl:result.pnl||null,bm:result.bm||null};
  }
- catch(error){const code=/^[A-Z_]+$/.test(error.message||'')?error.message:'GROWW_UNAVAILABLE';await api('error',{requestId:plan.requestId,code}).catch(()=>{});return {state:'attention',reason:code,account:plan.account};}
+ catch(error){const code=/^[A-Z_]+$/.test(error.message||'')?error.message:'GROWW_UNAVAILABLE';
+  // Signed-out or PIN problems would fail the extras too; anything else, still try them.
+  if(!extras&&!['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED','PIN_REQUIRED','PIN_INPUT_CHANGED'].includes(code))extras=await runExtras().catch(()=>null);
+  const response=await api('error',{requestId:plan.requestId,code,...(extras?{extras}:{})}).catch(()=>null);
+  if(extras?.pnl?.downloadId!==undefined&&response?.pnlRead)await discardDownload(chromeApi,extras.pnl.downloadId);return {state:'attention',reason:code,account:plan.account};}
 }

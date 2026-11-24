@@ -92,7 +92,8 @@ export class ExtensionBridge{
     const state=await this.deps.readJSON(join(this.home,'state.json'),{});if(state.blocked)delete state.blocked[input.account];await vault.save();await this.deps.atomicJSON(join(this.home,'state.json'),state);accepted={account:input.account,id:ext.operation.id};return {accepted:true,positions:rows.length,capturedAt:ext.capture.capturedAt,...extrasResult};
    }
    if(action==='error'){
-    ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true};
+    const extrasResult=input.extras?await acceptExtras(ext,input.extras,ext.request.extras,now):{};if(input.extras&&(ext.pendingExtras?.pnl||ext.pendingExtras?.bm?.length))accepted={account:input.account,id:ext.operation?.id,extrasOnly:true};
+    ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true,...extrasResult};
    }
    fail('UNKNOWN_BRIDGE_ACTION');
   });
