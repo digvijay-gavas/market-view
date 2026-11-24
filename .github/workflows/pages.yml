@@ -15,12 +15,11 @@ concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
-  deploy:
+  # Build and deploy are separate jobs (GitHub's Pages template). Deploying in the same job as
+  # the upload intermittently failed with "No artifacts named github-pages were found".
+  build:
     if: inputs.publish_site == true
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -34,6 +33,13 @@ jobs:
         with:
           path: dist
           include-hidden-files: true
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Publish static frontend
         id: deployment
         uses: actions/deploy-pages@v5
