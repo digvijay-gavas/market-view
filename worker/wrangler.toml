@@ -1,0 +1,7 @@
+name = "market-view-prices"
+main = "price-proxy.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+# Comma-separated origins allowed to call /quotes.
+ALLOWED_ORIGINS = "https://digvijay-gavas.github.io,http://127.0.0.1:5174,http://localhost:5174"

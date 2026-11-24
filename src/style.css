@@ -135,3 +135,6 @@
  .app-loaded #bm-note{max-height:none;overflow:visible}
  .app-loaded .overview-note{max-height:none}.app-loaded .about-card{height:auto}
 }
+
+.live-prices{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px}.live-prices label{font-size:12px;color:var(--muted)}.live-prices select,.live-prices button{min-height:36px;padding:6px 12px;font-size:13px}.live-prices .fine{margin:0;flex:1 1 220px}
+@media (max-width:640px){.live-prices select,.live-prices button{flex:1 1 auto}}

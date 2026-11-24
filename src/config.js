@@ -1,3 +1,5 @@
+// Price relay Worker (see worker/README.md). Empty disables live prices in the viewer.
+export const PRICE_PROXY_URL='https://market-view-prices.digvijay-gavas-v1.workers.dev';
 // Encrypted public OAuth client ID. The PIN is entered by the user, never committed.
 export const oauthConfig=Object.freeze({
   "version": 1,

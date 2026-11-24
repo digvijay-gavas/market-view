@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style; connect-src 'self' https://www.googleapis.com https://accounts.google.com; frame-src https://accounts.google.com; img-src 'self' data: https://*.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://market-view-prices.digvijay-gavas-v1.workers.dev; frame-src https://accounts.google.com; img-src 'self' data: https://*.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>Market / Portfolio snapshots</title>
   <link rel="stylesheet" href="./src/style.css">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -31,6 +31,7 @@
         <button id="tab-data" role="tab" aria-selected="false" aria-controls="view-data" tabindex="-1">Data</button>
         <button id="tab-about" role="tab" aria-selected="false" aria-controls="view-about" tabindex="-1">About</button>
       </nav>
+      <div class="live-prices"><label for="live-mode">Live prices</label><select id="live-mode"></select><button id="live-fetch" type="button">Fetch prices now</button><span id="live-status" class="fine" role="status" aria-live="polite"></span></div>
       <p id="cache-state" class="cache-state" role="status" aria-live="polite"></p>
       <p id="data-alert" class="data-alert" hidden></p>
       <section id="view-overview" class="view-panel" role="tabpanel" aria-labelledby="tab-overview">

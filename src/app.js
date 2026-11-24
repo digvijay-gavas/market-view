@@ -1,6 +1,7 @@
 import {bmRows} from './bm.js';
 import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge,reuseSharedCache} from './drive-cache.js';
-import {oauthConfig} from './config.js';
+import {oauthConfig,PRICE_PROXY_URL} from './config.js';
+import {LivePrices,LIVE_MODES,applyQuotes,holdingSlugs} from './live-prices.js';
 import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
 import {PortfolioCache,samePortfolio} from './cache.js';
@@ -21,10 +22,25 @@ let bmFilter='all',cloudCache=null,cacheSavedAt=null,cacheMessage='';
 let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
 const loading=(message,value=0)=>{$('load-progress').hidden=false;$('loading-bar').value=value;status(message);};
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
+const live=new LivePrices({endpoint:PRICE_PROXY_URL,slugs:()=>store?holdingSlugs(store.snapshots):[],onChange:renderLive});
+let liveView={source:null,version:-1,snapshots:null},liveRendered=0;
+// Live quotes overlay the loaded snapshots in memory only; store (and the Drive/browser caches) keep saved prices.
+function liveSnapshots(){if(!store||!live.quotes.size)return null;if(liveView.source!==store.snapshots||liveView.version!==live.version)liveView={source:store.snapshots,version:live.version,snapshots:applyQuotes(store.snapshots,live.quotes)};return liveView.snapshots;}
+function renderLive(){
+ $('live-mode').value=live.mode;$('live-mode').disabled=!live.enabled;$('live-fetch').disabled=!live.enabled||live.busy||!store;
+ $('live-fetch').textContent=live.busy?'Fetching…':'Fetch prices now';
+ const parts=[];
+ if(!live.enabled)parts.push('Live prices are not configured for this site.');
+ else{if(live.lastAt)parts.push('Live prices '+new Date(live.lastAt).toLocaleTimeString('en-IN',{timeStyle:'short'}));else parts.push('Showing saved prices.');
+  if(live.remaining!=null)parts.push(live.remaining+' refresh'+(live.remaining===1?'':'es')+' left');
+  if(live.note)parts.push(live.note);if(live.error)parts.push(live.error);}
+ $('live-status').textContent=parts.join(' · ');$('live-status').classList.toggle('error',Boolean(live.error));
+ if(liveRendered!==live.version){liveRendered=live.version;render();}
+}
 function clearData() {
   $('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');
   bmFilter='all';cloudCache=null;cacheSavedAt=null;cacheMessage='';$('cache-state').textContent='';
-  generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;
+  generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
   for(const id of ['source-pages','warning-pages','allocation-pages','data-alert','overview-detail'])$(id).replaceChildren();
@@ -78,7 +94,7 @@ function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=
 async function openFolder(id,force=false) {
  if(busy)return false;
  let succeeded=false;
- if(selectedRoot!==id){refreshSchedule.stop();store=null;cacheSavedAt=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;}
+ if(selectedRoot!==id){refreshSchedule.stop();live.clear();store=null;cacheSavedAt=null;$('dashboard').hidden=true;$('back-portfolio').hidden=true;}
  await action(async attempt=>{
   const cache=portfolioCache,drive=reader,cloud=cloudCache;
   let cached=await cache?.get('portfolio:'+id),saved=null;
@@ -147,6 +163,10 @@ async function findFolders(openUnique=false){
 $('find-folders').addEventListener('click',()=>findFolders());
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
 $('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot,true);});
+$('live-mode').replaceChildren(...LIVE_MODES.map(m=>{const o=text('option',m.label);o.value=m.id;return o;}));
+$('live-mode').addEventListener('change',()=>live.setMode($('live-mode').value));
+$('live-fetch').addEventListener('click',()=>live.fetchNow());
+renderLive();
 $('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
 $('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
 $('search').addEventListener('input',renderPositions);
@@ -157,7 +177,7 @@ function bar(container,name,value,share,colour='') {
   const track=text('div','','bar-track'),fill=text('div','',`bar-fill ${colour}`);fill.style.width=`${Math.max(0,Math.min(100,share||0))}%`;track.append(fill);row.append(label,track);container.append(row);
 }
 const calculations=new WeakMap();
-function current(){let accounts=calculations.get(store);if(!accounts){accounts=new Map();calculations.set(store,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(store.snapshots,store.dividends,selectedAccounts??'',store.reports||[],store.smallcases||[]));return accounts.get(key);}
+function current(){const liveSnaps=liveSnapshots(),owner=liveSnaps||store;let accounts=calculations.get(owner);if(!accounts){accounts=new Map();calculations.set(owner,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(liveSnaps||store.snapshots,store.dividends,selectedAccounts??'',store.reports||[],store.smallcases||[]));return accounts.get(key);}
 function selectedSnapshots(){return store.snapshots.filter(s=>selectedAccounts===null||selectedAccounts.includes(s.partition));}
 function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
@@ -166,6 +186,8 @@ function render() {
   const progressive=(store.progressiveSources||[]).filter(s=>selected.some(a=>a.partition===s.account));
   $('freshness').textContent=selected.length?`Saved prices: ${dates.join(' · ')} · Read ${stamp(store.loadedAt)}`:'No accounts selected';
   if(progressive.length){const basis=progressive.map(s=>s.positionsAt).sort();const quotes=progressive.map(s=>s.pricesFrom).filter(Boolean).sort();$('freshness').textContent='Positions reconciled: '+stamp(basis[0])+' · Prices fetched: '+(quotes.length?stamp(quotes[0]):'using reconciliation prices')+' · Not exchange real-time';}
+  if(live.lastAt&&live.quotes.size)$('freshness').textContent+=' · Live prices '+stamp(live.lastAt)+' (overlay, not saved)';
+  $('live-fetch').disabled=!live.enabled||live.busy;
   const warnings=[...store.warnings];
   if(dates.length>1)warnings.push('Combined totals mix capture dates; see each account below.');
   if(p.incomplete)warnings.push(`${p.incomplete} holding(s) have missing value or cost inputs. Affected totals and weights are unavailable.`);
