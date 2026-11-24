@@ -19,9 +19,9 @@ test('open holdings XIRR uses reconciled dated lots and captured valuation date'
  const other={...capture,partition:'two'},otherReport={...report,partition:'two'};
  assert.ok(Math.abs(openHoldingsXirr([capture,other],[report,otherReport]).rate-.1)<1e-10);
 });
-test('partial accounts, unmatched names, missing dates and quantity/cost mismatches never produce partial XIRR',()=>{
+test('unmatched names, missing dates and quantity/cost mismatches leave a holding out; an uncovered account is reported',()=>{
  assert.equal(openHoldingsXirr([capture],[]).rate,null);
- assert.equal(openHoldingsXirr([capture,{...capture,partition:'two'}],[report]).rate,null);
+ const partial=openHoldingsXirr([capture,{...capture,partition:'two'}],[report]);assert.ok(Math.abs(partial.rate-.1)<1e-10);assert.deepEqual(partial.coverage,{included:1,total:2,costShare:.5});assert.match(partial.excluded[0].reason,/no dated P&L report/);
  for(const change of [{stock_name:'Different company'},{buy_date:null},{quantity:9},{buy_value:90},{buy_date:'2026-02-01'}]){
   const bad={...report,tables:{open_lots:[{...report.tables.open_lots[0],...change}]}};
   assert.equal(openHoldingsXirr([capture],[bad]).rate,null);
@@ -46,4 +46,15 @@ test('terminal-date purchases are allowed alongside earlier invested lots',()=>{
  const holdings={...capture,tables:{holdings:[{...capture.tables.holdings[0],qty:20,invested:200,current_value:210}]}};
  const ledger={...report,tables:{open_lots:[report.tables.open_lots[0],{...report.tables.open_lots[0],buy_date:'2026-01-01'}]}};
  assert.ok(Math.abs(openHoldingsXirr([holdings],[ledger]).rate-.1)<1e-10);
+});
+test('one unmatched holding is left out and reported instead of blanking XIRR',async()=>{
+ const {openHoldingsXirr:calc}=await import('../src/xirr.js');
+ const holdings=[{groww_slug:'alpha-ltd',name:'Alpha Ltd',qty:10,invested:1000,ltp:150,current_value:1500},{groww_slug:'beta-ltd',name:'Beta Ltd',qty:5,invested:200,ltp:50,current_value:250}];
+ const snap={partition:'one',as_of:'2026-06-01',tables:{holdings}};
+ const lots=[{stock_name:'Alpha Ltd',isin:'INE000A00001',quantity:10,buy_value:1000,buy_date:'2025-06-01'},{stock_name:'Beta Ltd',isin:'INE000B00001',quantity:3,buy_value:120,buy_date:'2025-06-01'}];
+ const r=calc([snap],[{partition:'one',as_of:'2026-05-01',captured_at:'2026-05-01T00:00:00Z',tables:{open_lots:lots}}]);
+ assert.ok(r.rate>0.4&&r.rate<0.6);assert.equal(r.coverage.included,1);assert.equal(r.coverage.total,2);
+ assert.equal(r.excluded[0].name,'Beta Ltd');assert.match(r.excluded[0].reason,/3 shares.*5 shares/);assert.match(r.reason,/Covers 1 of 2 holdings/);
+ const mostlyMissing=calc([{...snap,tables:{holdings:[holdings[0],{...holdings[1],invested:5000}]}}],[{partition:'one',as_of:'2026-05-01',captured_at:'2026-05-01T00:00:00Z',tables:{open_lots:lots}}]);
+ assert.equal(mostlyMissing.rate,null);assert.match(mostlyMissing.reason,/Only 17% of cost/);
 });
