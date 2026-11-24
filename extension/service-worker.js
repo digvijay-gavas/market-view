@@ -6,7 +6,7 @@ let busy=false;
 async function settings(){const data=await chrome.storage.local.get(['pairing','clientId','bridgePort']);if(!data.clientId){data.clientId=crypto.randomUUID();await chrome.storage.local.set({clientId:data.clientId});}return data;}
 async function api(action,body={}){
  const data=await settings(),port=Number.isInteger(data.bridgePort)&&data.bridgePort>0&&data.bridgePort<65536?data.bridgePort:5186;
- const response=await fetch('http://127.0.0.1:'+port+'/bridge/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-Market-Extension':chrome.runtime.id,...(data.pairing?{Authorization:'Bearer '+data.pairing.token}:{})},body:JSON.stringify({clientId:data.clientId,...(data.pairing?{account:data.pairing.account}:{}),...body}),credentials:'omit',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
+ const response=await fetch('http://127.0.0.1:'+port+'/bridge/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-Market-Extension':chrome.runtime.id,...(data.pairing?{Authorization:'Bearer '+data.pairing.token}:{})},body:JSON.stringify({clientId:data.clientId,version:chrome.runtime.getManifest().version,...(data.pairing?{account:data.pairing.account}:{}),...body}),credentials:'omit',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
  const result=await response.json();if(!response.ok)throw new Error(result.error||'LOCAL_COLLECTOR_UNAVAILABLE');return result;
 }
 async function collect(manual=false,options={}){

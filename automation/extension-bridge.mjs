@@ -61,6 +61,8 @@ export class ExtensionBridge{
     await vault.save();await this.deps.atomicJSON(join(this.home,'config.json'),config);return {account:input.account,confirmed:true};
    }
    if(action==='poll'){
+    // Which extension build this profile runs, so the admin board can show a stale copy.
+    if(typeof input.version==='string'&&/^\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(input.version))ext.extensionVersion=input.version;
     if(!ext.confirmed)return {action:'confirm',account:input.account};
     if((input.runnerTicket&&!same(ext.runnerTicket,input.runnerTicket))||(ext.runnerTicket&&(!same(ext.runnerTicket,input.runnerTicket)||captureOperation(ext,now)?.phase==='failed')))return {action:'idle',reason:'MANAGED_RUN_PENDING',account:input.account};
     if(['queued','running'].includes(ext.operation?.phase)&&captureOperation(ext,now)?.phase==='failed'){ext.operation=captureOperation(ext,now);ext.manualRequestedAt=null;ext.request=null;}
@@ -95,6 +97,8 @@ export class ExtensionBridge{
    if(action==='error'){
     const extrasResult=input.extras?await acceptExtras(ext,input.extras,ext.request.extras,now):{};if(input.extras&&(ext.pendingExtras?.pnl||ext.pendingExtras?.bm?.length))accepted={account:input.account,id:ext.operation?.id,extrasOnly:true};
     ext.lastError=codes.has(input.code)?input.code:'GROWW_UNAVAILABLE';
+    // Holdings rows were on screen, so Groww accepted any PIN entered in this capture.
+    if(ext.lastError==='PARTIAL_HOLDINGS')secret.pinAttemptPending=false;
     // Counts/position only, so the admin board can say why a holdings read was rejected.
     const d=input.detail,int=x=>Number.isInteger(x)&&x>=0&&x<5000?x:null;ext.lastErrorDetail=d&&typeof d==='object'&&['row-format','row-link','count-mismatch','no-rows'].includes(d.reason)?{reason:d.reason,row:int(d.row),rows:int(d.rows),expected:int(d.expected),at:now.toISOString()}:null;ext.retryAt=new Date(+now+(['AUTH_REQUIRED','PIN_REJECTED','PIN_CHECK_REQUIRED'].includes(ext.lastError)?3600000:600000)).toISOString();if(ext.operation)Object.assign(ext.operation,{phase:'failed',error:ext.lastError,errorStage:'capture',completedAt:now.toISOString()});ext.request=null;ext.manualRequestedAt=null;await vault.save();return {recorded:true,...extrasResult};
    }
