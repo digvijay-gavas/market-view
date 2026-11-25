@@ -89,3 +89,18 @@ export async function run(home,{force=false,positionsNow=false,dryRun=false}={})
  }catch(error){state.lastError={at:new Date().toISOString(),code:/^[A-Z_]+$/.test(error.message)?error.message:'COLLECTOR_FAILED'};state.nextRunAt=new Date(Date.now()+600000).toISOString();await atomicJSON(join(home,'state.json'),state);throw new Error(state.lastError.code);}
  finally{await release();}
 }
+// Portfolio history (overview chart): rebuilt from every recorded capture plus daily closes.
+// Runs after the daily capture and on demand (`cli history`); one run at a time.
+export async function history(home){
+ const config=validateConfig(await readJSON(join(home,'config.json'),null)),state=await readJSON(join(home,'state.json'),{});
+ const release=await lock(home,'history.lock');if(!release)return {ran:false,reason:'ALREADY_RUNNING'};
+ try{
+  const vault=await new Vault(home).open(),token=await accessToken(vault.data.google);
+  const publisher=new Publisher(token,config.rootId,{cache:new FileBodyCache(home)});
+  const {compileHistory}=await import('./history.mjs'),{jsonGet}=await import('./prices.mjs');
+  const lookup=async slug=>{const head=(await jsonGet('https://groww.in/v1/api/stocks_data/v1/company/search_id/'+encodeURIComponent(slug)))?.header||{};return head.nseScriptCode||head.bseScriptCode?{symbol:String(head.nseScriptCode||head.bseScriptCode),exchange:head.nseScriptCode?'NSE':'BSE'}:null;};
+  const result=await compileHistory(publisher,{instruments:state.instruments||{},lookup});
+  const latest=await readJSON(join(home,'state.json'),{});latest.history={at:new Date().toISOString(),points:result.points,unpriced:result.unpriced};await atomicJSON(join(home,'state.json'),latest);
+  return {ran:true,...result,instruments:undefined};
+ }finally{await release();}
+}

@@ -21,3 +21,23 @@ export async function decryptClientId(config,pin){
   const value=new TextDecoder().decode(plaintext);if(!clientPattern.test(value))throw new Error();return value;
  }catch{throw new Error('PIN could not unlock this app. Check the PIN and try again.');}
 }
+// Remembered unlock: after a correct PIN, the unlocked client ID (never the PIN) is kept in
+// localStorage until 10 minutes pass without activity, so a reload does not ask again.
+const UNLOCK_KEY='marketView.unlock';
+export const UNLOCK_IDLE_MS=10*60000;
+export function rememberUnlock(clientId,{storage=globalThis.localStorage,now=Date.now()}={}){
+ if(!clientPattern.test(clientId))return false;
+ try{storage.setItem(UNLOCK_KEY,JSON.stringify({version:1,clientId,until:now+UNLOCK_IDLE_MS}));return true;}catch{return false;}
+}
+export function restoreUnlock({storage=globalThis.localStorage,now=Date.now()}={}){
+ try{
+  const r=JSON.parse(storage.getItem(UNLOCK_KEY)||'null');
+  if(r?.version===1&&clientPattern.test(r.clientId)&&Number.isFinite(r.until)&&r.until>now&&r.until<=now+UNLOCK_IDLE_MS)return r.clientId;
+ }catch{}
+ forgetUnlock({storage});return null;
+}
+// Activity extends the window; an expired record is not revived.
+export function touchUnlock({storage=globalThis.localStorage,now=Date.now()}={}){
+ const clientId=restoreUnlock({storage,now});return clientId?rememberUnlock(clientId,{storage,now}):false;
+}
+export function forgetUnlock({storage=globalThis.localStorage}={}){try{storage.removeItem(UNLOCK_KEY);}catch{}}

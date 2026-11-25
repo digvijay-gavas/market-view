@@ -3,8 +3,9 @@ import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge,reuse
 import {oauthConfig,PRICE_PROXY_URL} from './config.js';
 import {LivePrices,LIVE_MODES,applyQuotes,holdingItems} from './live-prices.js';
 import {PriceLog} from './price-log.js';
+import {HISTORY_FILE,validHistory,historySeries,chartGeometry} from './history.js';
 import {raceScale,raceProgress,shortAgo,accountColors,donutSlices} from './charts.js';
-import {decryptClientId} from './pin.js';
+import {decryptClientId,rememberUnlock,restoreUnlock,touchUnlock,forgetUnlock} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
 import {PortfolioCache,samePortfolio} from './cache.js';
 import {buildPortfolio,numeric} from './model.js';
@@ -14,6 +15,7 @@ import {restoreSession,saveSession,clearSession} from './session.js';
 const $=id=>document.getElementById(id);
 $('client-id').value=oauthConfig?'':restoreClientId();
 $('client-id').addEventListener('input',()=>{if(!oauthConfig)saveClientId($('client-id').value.trim());});
+const day=d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-IN',{day:'numeric',month:'short',timeZone:'UTC'});
 const money=x=>numeric(x)?new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(x):'Unavailable';
 const pct=x=>numeric(x)?`${x>=0?'+':''}${x.toFixed(2)}%`:'—';
 const number=x=>numeric(x)?new Intl.NumberFormat('en-IN',{maximumFractionDigits:3}).format(x):'—';
@@ -66,10 +68,10 @@ function clearData() {
   generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();$('live-bar').hidden=true;$('topbar-pill').hidden=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
-  for(const id of ['source-pages','warning-pages','data-alert','overview-detail'])$(id).replaceChildren();
+  for(const id of ['source-pages','warning-pages','data-alert','history-chart'])$(id).replaceChildren();history=null;historyRoot=null;
   $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
-  $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='All accounts ▾';$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
+  $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='Accounts: All accounts ▾';$('account-chip').hidden=true;$('menu-dashboard').hidden=true;$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
   $('bm-note').textContent='';
   $('holdings-title').textContent='Holdings';$('table-note').textContent='';
   for(const id of ['refresh','load-folder','find-folders'])$(id).disabled=false;
@@ -77,10 +79,10 @@ function clearData() {
 function disconnect(message='Disconnected. Portfolio data has been cleared.') {
   refreshSchedule.stop();clearTimeout(expireTimer);portfolioCache?.clear();portfolioCache=null;clearSession();clearData();token=null;expiry=0;sessionRemembered=false;$('disconnect').hidden=true;$('connect-panel').hidden=false;$('connect').disabled=false;status(message);
 }
-$('disconnect').addEventListener('click',()=>{closeAppMenu();disconnect();});
+$('disconnect').addEventListener('click',()=>{closeAppMenu();forgetUnlock();disconnect();});
 // The logo opens a small menu (Disconnect lives there to keep the top bar compact).
 function closeAppMenu(){$('app-menu').hidden=true;$('brand-button').setAttribute('aria-expanded','false');}
-$('brand-button').addEventListener('click',event=>{event.stopPropagation();if($('disconnect').hidden){location.href='./';return;}const open=$('app-menu').hidden;$('app-menu').hidden=!open;$('brand-button').setAttribute('aria-expanded',String(open));if(open)$('disconnect').focus();});
+$('brand-button').addEventListener('click',event=>{event.stopPropagation();if($('disconnect').hidden){location.href='./';return;}const open=$('app-menu').hidden;$('app-menu').hidden=!open;$('brand-button').setAttribute('aria-expanded',String(open));if(open)[...$('app-menu').querySelectorAll('[role=menuitem]')].find(b=>b.offsetParent)?.focus();});
 document.addEventListener('click',event=>{if(!$('app-menu').hidden&&!event.target.closest('.app-menu'))closeAppMenu();});
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!$('app-menu').hidden){closeAppMenu();$('brand-button').focus();}});
 $('connect').addEventListener('click',()=>{
@@ -116,7 +118,7 @@ function displayStore(result,id,views){
  store=result;selectedRoot=id;sourcePage=warningPage=allocationPage=0;
  if(selectionRoot!==id){selectedAccounts=restoreSelection($('client-id').value.trim(),id);selectionRoot=id;}
  renderAccountPicker();
- $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();
+ $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();loadHistory();
 }
 function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=(cacheSavedAt?'Dashboard cached '+cacheAge(cacheSavedAt)+' · ':'')+message;}
 async function openFolder(id,force=false) {
@@ -190,12 +192,12 @@ async function findFolders(openUnique=false){
 }
 $('find-folders').addEventListener('click',()=>findFolders());
 $('load-folder').addEventListener('click',()=>{try{openFolder(folderId($('folder-id').value));}catch(e){status(e.message,true);}});
-$('refresh').addEventListener('click',()=>{if(selectedRoot)openFolder(selectedRoot,true);});
+$('refresh').addEventListener('click',()=>{closeAppMenu();historyRoot=null;if(selectedRoot)openFolder(selectedRoot,true);});
 $('live-mode').replaceChildren(...LIVE_MODES.map(m=>{const b=text('button',m.short);b.type='button';b.dataset.mode=m.id;b.setAttribute('role','radio');b.title=m.label+(m.max?` (stops after ${m.max})`:'');b.addEventListener('click',()=>live.setMode(m.id));return b;}));
 setInterval(()=>{if(store)renderAgo();},30000);
 $('live-fetch').addEventListener('click',()=>live.fetchNow());
 renderLive();
-$('change-folder').addEventListener('click',()=>{$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
+$('change-folder').addEventListener('click',()=>{closeAppMenu();$('folder-panel').hidden=false;$('dashboard').hidden=true;$('back-portfolio').hidden=false;});
 $('back-portfolio').addEventListener('click',()=>{if(store){$('folder-panel').hidden=true;$('dashboard').hidden=false;}});
 $('search').addEventListener('input',renderPositions);
 document.addEventListener('visibilitychange',()=>{if(token&&Date.now()>=expiry)disconnect('Google access expired. Connect again.');});
@@ -206,6 +208,45 @@ function bar(container,name,value,share,colour='') {
 }
 const calculations=new WeakMap();
 function current(){const liveSnaps=liveSnapshots(),owner=liveSnaps||store;let accounts=calculations.get(owner);if(!accounts){accounts=new Map();calculations.set(owner,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(liveSnaps||store.snapshots,store.dividends,selectedAccounts??'',store.reports||[],store.smallcases||[]));return accounts.get(key);}
+// Overview history (written daily by the collector). Loaded once per folder, after the dashboard.
+let history=null,historyRoot=null,historyMetric='return';
+async function loadHistory(force=false){
+ const rootId=store?.root?.id;if(!rootId||!cloudCache||(!force&&historyRoot===rootId))return;historyRoot=rootId;
+ try{
+  const mv=await cloudCache.mvFolder(rootId);const file=mv&&(await cloudCache.list("trashed = false and '"+mv.id+"' in parents and name = '"+HISTORY_FILE+"'"))[0];
+  history=file?validHistory(await cloudCache.request('https://www.googleapis.com/drive/v3/files/'+encodeURIComponent(file.id)+'?alt=media&supportsAllDrives=true')):null;
+ }catch{history=null;}
+ if(store?.root?.id===rootId)renderHistory();
+}
+const signedPct=v=>(v>0?'+':'')+v.toFixed(2)+'%';
+function renderHistory(){
+ const box=$('history-chart');if(!box)return;
+ for(const b of $('history-metric').children)b.setAttribute('aria-checked',String(b.dataset.metric===historyMetric));
+ $('history-title').textContent=historyMetric==='xirr'?'XIRR over time':'Return on invested';
+ if(!history){box.replaceChildren();$('history-sub').textContent='';$('history-note').textContent=historyRoot?'No history yet. The collector builds it after each daily capture.':'Loading history…';return;}
+ const s=historySeries(history,selectedAccounts,historyMetric),w=Math.max(280,Math.round(box.clientWidth||640)),g=chartGeometry(s.points,{width:w,height:Math.round(Math.min(220,Math.max(150,w*0.42)))});
+ if(!g){box.replaceChildren();$('history-sub').textContent='';$('history-note').textContent=s.reason||'Not enough history yet.';return;}
+ const last=s.points.at(-1);
+ $('history-sub').textContent=signedPct(last.value)+' on '+day(last.date)+' · since '+day(s.since);
+ const NS='http://www.w3.org/2000/svg',el=(name,attrs,text)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text!=null)e.textContent=text;return e;};
+ const svg=el('svg',{viewBox:`0 0 ${g.width} ${g.height}`,class:'history-svg',role:'img','aria-label':$('history-title').textContent+': '+$('history-sub').textContent});
+ for(const t of g.ticks){svg.append(el('line',{x1:g.pad.l,x2:g.width-g.pad.r,y1:t.y,y2:t.y,class:t.v===0?'h-zero':'h-grid'}),el('text',{x:g.pad.l-6,y:t.y+3,class:'h-axis','text-anchor':'end'},(t.v>0?'+':'')+t.v+'%'));}
+ for(const m of g.months)svg.append(el('text',{x:m.x,y:g.height-6,class:'h-axis','text-anchor':'middle'},new Date(m.d+'T00:00:00Z').toLocaleString('en-IN',{month:'short',timeZone:'UTC'})));
+ svg.append(el('path',{d:g.path,class:'h-line '+(last.value<0?'neg':'pos')}));
+ const cross=el('line',{class:'h-cross',y1:g.pad.t,y2:g.height-g.pad.b,visibility:'hidden'}),dot=el('circle',{r:4,class:'h-dot',visibility:'hidden'});svg.append(cross,dot);
+ const tip=document.createElement('div');tip.className='history-tip';tip.hidden=true;
+ const move=event=>{
+  const r=svg.getBoundingClientRect(),x=(event.clientX-r.left)/r.width*g.width;let i=0;for(let k=1;k<g.xy.length;k++)if(Math.abs(g.xy[k][0]-x)<Math.abs(g.xy[i][0]-x))i=k;
+  const [px,py]=g.xy[i],p=s.points[i];for(const [k,v] of [['x1',px],['x2',px]])cross.setAttribute(k,v);dot.setAttribute('cx',px);dot.setAttribute('cy',py);cross.setAttribute('visibility','visible');dot.setAttribute('visibility','visible');
+  tip.hidden=false;tip.textContent=day(p.date)+' · '+signedPct(p.value)+(p.invested?' · '+money(p.current)+' of '+money(p.invested):'')+(p.coverage!=null&&p.coverage<0.95?' · '+Math.round(p.coverage*100)+'% of cost has lots':'');
+  tip.style.left=Math.min(Math.max(0,px/g.width*r.width-80),r.width-170)+'px';
+ };
+ svg.addEventListener('pointermove',move);svg.addEventListener('pointerdown',move);svg.addEventListener('pointerleave',()=>{tip.hidden=true;cross.setAttribute('visibility','hidden');dot.setAttribute('visibility','hidden');});
+ box.replaceChildren(svg,tip);
+ $('history-note').textContent=historyMetric==='xirr'?'XIRR per day uses purchase lots bought by that day; holdings sold since have no lots and drop out.':"Each day values the holdings from each account's latest capture at that day's closing price.";
+}
+let historyWidth=0;addEventListener('resize',()=>{const w=$('history-chart').clientWidth;if(history&&Math.abs(w-historyWidth)>24){historyWidth=w;renderHistory();}});
+$('history-metric').addEventListener('click',event=>{const b=event.target.closest('[data-metric]');if(!b)return;historyMetric=b.dataset.metric;renderHistory();});
 function selectedSnapshots(){return store.snapshots.filter(s=>selectedAccounts===null||selectedAccounts.includes(s.partition));}
 function render() {
   if(!store)return;const p=current();$('dashboard').hidden=false;document.documentElement.classList.add('app-loaded');$('store-name').textContent=store.root.name;
@@ -222,7 +263,7 @@ function render() {
   for(const x of p.xirrAdjusted||[])warnings.push(`XIRR uses Groww's invested ${money(x.invested)} for ${x.name} (${x.account}); its P&L lots say ${money(x.lotCost)} (shares credited into Groww, e.g. grey-market or transfer). Lot dates are kept.`);
   currentWarnings=warnings;
   $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
-  $('overview-detail').textContent=selected.length===0?'Choose one or more accounts to see your portfolio.':`${money(p.otherHoldingsValue)} in other holdings. Cash (LIQUIDCASE) and gold (GOLDCASE) are shown separately and included in total value. ${p.positions.length} holdings across ${p.accounts.length} accounts.`;
+  renderHistory();
   $('stats').replaceChildren();
   const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?(p.xirrExcluded?.length&&p.xirrCoverage?`Covers ${p.xirrCoverage.included} of ${p.xirrCoverage.total} holdings · see Data`:'Annualised · excludes sales/dividends'):p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];
   for(const [label,value,note]of stats){
@@ -393,16 +434,21 @@ window.addEventListener('focus',resumeRefresh);window.addEventListener('online',
 function renderAccountPicker(){
  const names=[...new Set(store.snapshots.map(s=>s.partition))].sort();
  const chosen=names.filter(name=>selectedAccounts===null||selectedAccounts.includes(name));
- $('account-button').textContent=selectedAccounts===null?'All accounts ▾':chosen.length===0?'Choose accounts ▾':chosen.length===1?chosen[0]+' ▾':chosen.length+' accounts ▾';
- $('account-button').title=chosen.join(', ');$('account-options').replaceChildren();
+ accountLabel(chosen);$('account-options').replaceChildren();
  for(const name of names){const label=text('label','','account-choice'),input=document.createElement('input');input.type='checkbox';input.value=name;input.checked=chosen.includes(name);
   input.addEventListener('change',()=>{
    const selected=[...$('account-options').querySelectorAll('input:checked')].map(input=>input.value);
    selectedAccounts=selected.length===names.length?null:selected.sort();persistAccountChoice();
-   $('account-button').textContent=selectedAccounts===null?'All accounts ▾':!selected.length?'Choose accounts ▾':selected.length===1?selected[0]+' ▾':selected.length+' accounts ▾';
-   $('account-button').title=selected.join(', ');sourcePage=warningPage=allocationPage=0;render();
+   accountLabel(selected);sourcePage=warningPage=allocationPage=0;render();
   });label.append(input,text('span',name));$('account-options').append(label);
  }
+}
+// The picker lives in the brand menu; a chip under the title says when only some accounts are shown.
+function accountLabel(chosen){
+ const text=selectedAccounts===null?'All accounts':chosen.length===0?'No accounts chosen':chosen.length===1?chosen[0]:chosen.length+' accounts';
+ $('account-button').textContent='Accounts: '+text+' ▾';$('account-button').title=chosen.join(', ');
+ $('account-chip').hidden=selectedAccounts===null;$('account-chip').textContent='Showing '+text+(chosen.length>1&&selectedAccounts!==null?' ('+chosen.join(', ')+')':'');
+ $('menu-dashboard').hidden=!store;
 }
 function persistAccountChoice(){const saved=saveSelection($('client-id').value.trim(),selectedRoot,selectedAccounts);$('account-save-status').textContent=saved?'Selection saved':'Browser storage blocked; selection lasts for this page only.';}
 function closeAccounts(){ $('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');}
@@ -430,17 +476,26 @@ function initializePortfolio(){
   else findFolders(true);
  }else status('Connect Google Drive to load your Market data automatically.');
 }
+function unlocked(clientId){
+ $('client-id').value=clientId;$('client-id').readOnly=true;$('client-configuration').hidden=true;
+ $('unlock-panel').hidden=true;$('connect-panel').hidden=false;initializePortfolio();
+}
+// Any activity keeps the remembered unlock alive (checked at most every 30 s).
+let lastTouch=0;
+for(const type of ['pointerdown','keydown','wheel','touchstart'])addEventListener(type,()=>{const now=Date.now();if(now-lastTouch>30000){lastTouch=now;touchUnlock({now});}},{passive:true,capture:true});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){lastTouch=Date.now();touchUnlock();}});
 async function unlockApp(){
  if($('unlock').disabled)return;
  $('unlock').disabled=true;
  try{
   const clientId=await decryptClientId(oauthConfig,$('app-pin').value);
-  $('app-pin').value='';$('client-id').value=clientId;$('client-id').readOnly=true;$('client-configuration').hidden=true;
-  $('unlock-panel').hidden=true;$('connect-panel').hidden=false;initializePortfolio();
+  $('app-pin').value='';rememberUnlock(clientId);unlocked(clientId);
  }catch(error){$('app-pin').value='';status(error.message,true);$('app-pin').focus();}
  finally{$('unlock').disabled=false;}
 }
 $('unlock').addEventListener('click',unlockApp);$('app-pin').addEventListener('keydown',event=>{if(event.key==='Enter')unlockApp();});
-if(oauthConfig){$('connect-panel').hidden=true;$('unlock-panel').hidden=false;status('Enter your app PIN to continue.');}
+const rememberedClient=oauthConfig?restoreUnlock():null;
+if(rememberedClient){touchUnlock();unlocked(rememberedClient);}
+else if(oauthConfig){$('connect-panel').hidden=true;$('unlock-panel').hidden=false;status('Enter your app PIN to continue.');}
 else initializePortfolio();
 setInterval(()=>{if(store)cacheStatus(cacheMessage);},60000);

@@ -58,8 +58,11 @@ export async function main(args=process.argv.slice(2)){
   const {managedRun}=await import('./managed.mjs'),{dailyDue}=await import('./schedule.mjs');
   const config=validateConfig(await readJSON(join(home,'config.json'),null)),state=await readJSON(join(home,'state.json'),{}),daily=dailyDue(config,state);
   const result=daily.due?await managedRun(home,{force:true,positionsNow:true,scheduled:true,daily:daily.day}):await managedRun(home);
-  console.log(JSON.stringify({ran:result.ran,reason:result.reason,daily:daily.due}));return;
+  // After the daily capture, rebuild the overview history (never blocks or fails the capture).
+  let historyResult=null;if(daily.due)try{const {history}=await import('./worker.mjs');historyResult=await history(home);}catch(error){historyResult={error:String(error.message||error)};}
+  console.log(JSON.stringify({ran:result.ran,reason:result.reason,daily:daily.due,history:historyResult}));return;
  }
+ if(command==='history'){const {history}=await import('./worker.mjs');console.log(JSON.stringify(await history(home),null,2));return;}
  if(command==='run'){const result=await run(home,{force:args.includes('--force'),positionsNow:args.includes('--positions-now'),dryRun:args.includes('--dry-run')});console.log(JSON.stringify({ran:result.ran,reason:result.reason,checkpoint:result.checkpoint},null,2));return;}
  if(command==='status'){const config=await readJSON(configPath,null),state=await readJSON(join(home,'state.json'),{});console.log(JSON.stringify({home,enabled:config?.enabled,rootConfigured:Boolean(config?.rootId),accounts:config?.accounts.map(a=>({id:a.id,state:state.blocked?.[a.id]||state.accounts?.[a.id]||'not_enrolled',lastPosition:state.positions?.[a.id]?.capturedAt})),lastRunAt:state.lastRunAt,nextRunAt:state.nextRunAt,lastError:state.lastError},null,2));return;}
  const config=validateConfig(await readJSON(configPath,null));
