@@ -3,6 +3,8 @@ import {fileURLToPath} from 'node:url';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {writeFile} from 'node:fs/promises';
+// Windows tools by full path: Git Bash and similar shells put their own whoami first on PATH.
+const sys32=name=>process.platform==='win32'?(process.env.SystemRoot||'C:/Windows')+'/System32/'+name:name;
 const exec=promisify(execFile);
 const xml=s=>String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c]));
 const TASK_NAME='MarketView Progressive Collector';
@@ -25,17 +27,17 @@ const underTest=()=>Boolean(process.env.NODE_TEST_CONTEXT);
 export async function installTask(home,schedule={}){
  if(underTest())throw new Error('REAL_TASK_UNTOUCHABLE_IN_TESTS');
  if(process.platform!=='win32')throw new Error('Windows Task Scheduler is required.');
- const user=(await exec('whoami.exe',[],{windowsHide:true})).stdout.trim(),repo=fileURLToPath(new URL('../',import.meta.url));
+ const user=(await exec(sys32('whoami.exe'),[],{windowsHide:true})).stdout.trim(),repo=fileURLToPath(new URL('../',import.meta.url));
  const path=join(home,'scheduled-task.xml');await writeFile(path,'\ufeff'+taskXML({user,node:process.execPath,repo,home,open:schedule.open,close:schedule.close,daily:schedule.dailyCapture===false?null:(schedule.dailyCaptureAt||'20:00')}),{encoding:'utf16le',mode:0o600});
- await exec('schtasks.exe',['/Create','/TN',TASK_NAME,'/XML',path,'/F'],{windowsHide:true});return TASK_NAME;
+ await exec(sys32('schtasks.exe'),['/Create','/TN',TASK_NAME,'/XML',path,'/F'],{windowsHide:true});return TASK_NAME;
 }
 export async function taskInstalled(){
  if(process.platform!=='win32')return false;
- try{await exec('schtasks.exe',['/Query','/TN',TASK_NAME,'/FO','CSV','/NH'],{windowsHide:true});return true;}catch{return false;}
+ try{await exec(sys32('schtasks.exe'),['/Query','/TN',TASK_NAME,'/FO','CSV','/NH'],{windowsHide:true});return true;}catch{return false;}
 }
 // Pausing must stop Windows from launching the task at all, not just make each launch exit early.
 export async function setTaskEnabled(enabled){
  if(underTest())throw new Error('REAL_TASK_UNTOUCHABLE_IN_TESTS');
  if(process.platform!=='win32'||!await taskInstalled())return false;
- await exec('schtasks.exe',['/Change','/TN',TASK_NAME,enabled?'/ENABLE':'/DISABLE'],{windowsHide:true});return true;
+ await exec(sys32('schtasks.exe'),['/Change','/TN',TASK_NAME,enabled?'/ENABLE':'/DISABLE'],{windowsHide:true});return true;
 }

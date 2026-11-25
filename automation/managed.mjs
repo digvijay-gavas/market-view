@@ -4,11 +4,12 @@ import {readJSON,lock,run,validateConfig} from './worker.mjs';
 import {duePlan} from './schedule.mjs';
 import {ExtensionBridge} from './extension-bridge.mjs';
 import {openCollectionChrome} from './normal-chrome.mjs';
+import {ensureBridge} from './bridge-start.mjs';
 import {captureOperation} from './capture-operation.mjs';
 import {runSummary} from './run-status.mjs';
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export async function managedRun(home,{force=false,account,positionsNow=force,scheduled=false,daily=null}={},deps={}){
- const d={readJSON,atomicJSON,openVault:()=>new Vault(home).open(),lock:name=>lock(home,name),launch:openCollectionChrome,run,sleep,now:()=>new Date(),...deps};
+ const d={readJSON,atomicJSON,openVault:()=>new Vault(home).open(),lock:name=>lock(home,name),launch:openCollectionChrome,ensureBridge,run,sleep,now:()=>new Date(),...deps};
  const release=await d.lock('managed.lock');if(!release)throw new Error('COLLECTOR_BUSY');
  let history,result,entry;const captures=[];
  try{
@@ -18,6 +19,8 @@ export async function managedRun(home,{force=false,account,positionsNow=force,sc
   const vault=await d.openVault(),selected=config.accounts.filter(a=>a.enabled!==false&&(!account||a.id===account)&&(positionsNow||plan.positions.includes(a.id)));
   history=await d.readJSON(join(home,'sync-history.json'),[]);if(!Array.isArray(history))history=[];history=history.map(h=>h.phase==='running'?{...h,phase:'interrupted',completedAt:d.now().toISOString()}:h);entry={startedAt:d.now().toISOString(),source:daily?'daily':force?'manual':'automatic',scope:account||'all',phase:'running',accounts:[]};
   const persist=()=>d.atomicJSON(join(home,'sync-history.json'),[entry,...history].slice(0,12));await persist();
+  // The runner page and extension bridge live in the admin process: start it if needed.
+  if(selected.length)await d.ensureBridge(home);
   const bridge=deps.bridge||new ExtensionBridge(home);
   for(const a of selected){
    const item={account:a.id,phase:'running'};entry.accounts.push(item);await persist();let prepared;

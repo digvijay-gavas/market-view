@@ -13,6 +13,8 @@ import {openProfile,waitReady,filterState,HOLDINGS_URL} from './browser.mjs';
 import {accessToken} from './drive.mjs';
 import {DriveReader} from '../src/drive.js';
 import {installTask,setTaskEnabled} from './task.mjs';
+// Windows tools by full path: Git Bash and similar shells put their own whoami first on PATH.
+const sys32=name=>process.platform==='win32'?(process.env.SystemRoot||'C:/Windows')+'/System32/'+name:name;
 const exec=promisify(execFile);
 function option(args,key,fallback){const i=args.indexOf('--'+key);return i<0?fallback:args[i+1];}
 export function secretPrompt(prompt){
@@ -23,8 +25,8 @@ export function secretPrompt(prompt){
 async function confirm(text){const io=createInterface({input:process.stdin,output:process.stdout});try{return (await io.question(text+' [yes/no] ')).trim().toLowerCase()==='yes';}finally{io.close();}}
 export async function protectHome(home){
  await mkdir(home,{recursive:true,mode:0o700});if(process.platform!=='win32')return;
- const output=(await exec('whoami.exe',['/user','/fo','csv','/nh'],{windowsHide:true})).stdout,sid=output.match(/S-1-\d+(?:-\d+)+/)?.[0];
- if(!sid)throw new Error('WINDOWS_IDENTITY_REQUIRED');await exec('icacls.exe',[home,'/inheritance:r','/grant:r','*'+sid+':(OI)(CI)F','*S-1-5-18:(OI)(CI)F'],{windowsHide:true});
+ const output=(await exec(sys32('whoami.exe'),['/user','/fo','csv','/nh'],{windowsHide:true})).stdout,sid=output.match(/S-1-\d+(?:-\d+)+/)?.[0];
+ if(!sid)throw new Error('WINDOWS_IDENTITY_REQUIRED');await exec(sys32('icacls.exe'),[home,'/inheritance:r','/grant:r','*'+sid+':(OI)(CI)F','*S-1-5-18:(OI)(CI)F'],{windowsHide:true});
 }
 export async function googleLogin(client,vault,{signal}={}){
  const c=client.installed;if(!c?.client_id)throw new Error('Use a Desktop app Google OAuth client JSON.');
