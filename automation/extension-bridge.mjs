@@ -87,7 +87,9 @@ export class ExtensionBridge{
    if(action==='result'){
     if(!Array.isArray(input.rows)||input.rows.length>2000||input.rows.length===0&&input.emptyVerified!==true)fail('PARTIAL_HOLDINGS');
     const captured=Date.parse(input.capturedAt);if(!Number.isFinite(captured)||captured< Date.parse(ext.request.issuedAt)-5000||captured>+now+300000)fail('CAPTURE_TIME_INVALID');
-    const fields=['groww_slug','name','qty','invested','avg_price','reference_price','reference_value'];
+    const fields=['groww_slug','name','qty','invested','avg_price','reference_price','reference_value','exchange','symbol'];
+    // Exchange symbols are kept only when well-formed (they feed the live price lookup).
+    for(const r of input.rows)if(r&&(!['NSE','BSE'].includes(r.exchange)||typeof r.symbol!=='string'||!/^[A-Z0-9&_.-]{1,24}$/.test(r.symbol))){delete r.exchange;delete r.symbol;}
     const rows=input.rows.map(r=>Object.fromEntries(fields.filter(k=>r[k]!==undefined).map(k=>[k,r[k]])));validateProgressive({dataset:'portfolio.positions',tables:{positions:rows}});
     const extrasResult=await acceptExtras(ext,input.extras,ext.request.extras,now);
     ext.capture={rows,capturedAt:new Date(captured).toISOString(),requestId:ext.request.id};ext.request=null;ext.manualRequestedAt=null;ext.lastError=null;ext.retryAt=null;secret.pinAttemptPending=false;

@@ -66,6 +66,9 @@ export async function runCycle({config,state,vault,publisher,home,calendar,now=n
   priceResult=await quotes(universe(baselines),{provider:config.priceProvider,instruments:state.instruments,token:vault.data.growwApi?.token,previous:priorPrices?.tables.quotes||[],now});
   state.instruments=priceResult.instruments;checkpoint.quoteState=priceResult.fresh?'updated':'stale';checkpoint.freshQuotes=priceResult.fresh;checkpoint.failedQuotes=priceResult.failures.length;
   if(priceResult.fresh)await store.publish('market.prices','shared',{quotes:priceResult.quotes},{provider:config.priceProvider},now);
+  // Reliability record: which source priced what, and how far Yahoo is from Groww. Never fatal.
+  if(store.appendPriceLog)try{const bySource={};for(const q of priceResult.quotes)if(q.fetched_at===now.toISOString())bySource[q.source]=(bySource[q.source]||0)+1;
+   await store.appendPriceLog([{at:now.toISOString(),writer:'collector',provider:config.priceProvider,requested:priceResult.quotes.length+priceResult.failures.length,bySource,failed:priceResult.failures,stopped:priceResult.stopped,check:priceResult.check||[]}],now);}catch{}
  }catch{checkpoint.quoteState='PRICE_FETCH_FAILED';}
  const cacheResult=await publisher.compileCache();checkpoint.cache=cacheResult.reused?'reused':'rebuilt';
  for(const account of config.accounts){const ext=vault.data.accounts[account.id]?.extension;if(ext?.capture?.requestId&&ext.operation?.captureRequestId===ext.capture.requestId&&state.positions[account.id]?.capturedAt===ext.capture.capturedAt)Object.assign(ext.operation,{phase:'succeeded',completedAt:new Date().toISOString(),publishState:'published',error:null});}

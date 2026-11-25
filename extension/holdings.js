@@ -38,7 +38,8 @@ export async function holdingsFromResponse(){
   if(typeof h.slug!=='string'||!h.slug||typeof h.name!=='string'||!Number.isFinite(h.qty)||h.qty<=0||!Number.isFinite(h.avgPaise))return {error:'PARTIAL_HOLDINGS',detail:{reason:'row-format',row:rows.length+1,rows:kept.holdings.length}};
   const avg=h.avgPaise/100,invested=Math.round(h.qty*avg*100)/100;let price=shown.get(h.slug)?.price??null;
   if(price===null&&(h.nse||h.bse)){try{const ex=h.nse?'NSE':'BSE',r=await fetch('/v1/api/stocks_data/v1/accord_points/exchange/'+ex+'/segment/CASH/latest_prices_ohlc/'+encodeURIComponent(h.nse||h.bse),{credentials:'omit'});const ltp=r.ok?Number((await r.json())?.ltp):NaN;if(Number.isFinite(ltp)&&ltp>0){price=ltp;fetched++;}}catch{}}
-  rows.push({groww_slug:h.slug,name:h.name,qty:h.qty,avg_price:avg,reference_price:price,reference_value:price===null?null:Math.round(price*h.qty*100)/100,invested});
+  const sym=h.nse?{exchange:'NSE',symbol:String(h.nse)}:h.bse?{exchange:'BSE',symbol:String(h.bse)}:{};
+  rows.push({groww_slug:h.slug,name:h.name,qty:h.qty,avg_price:avg,reference_price:price,reference_value:price===null?null:Math.round(price*h.qty*100)/100,invested,...sym});
  }
  const expected=(document.body.innerText.match(/HOLDINGS\s*\((\d+)\)/i)||[])[1];
  if(expected!==undefined&&Number(expected)!==rows.length)return {error:'PARTIAL_HOLDINGS',detail:{reason:'count-mismatch',rows:rows.length,expected:Number(expected)}};

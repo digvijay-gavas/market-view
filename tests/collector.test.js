@@ -37,7 +37,7 @@ test('login, challenge and partial loading never become empty holdings',async()=
 test('shared universe deduplicates accounts; partial quote fetch retains old timestamps and stops on 429',async()=>{
  const rows=[{groww_slug:'one',qty:2},{groww_slug:'two',qty:3}];assert.equal(universe([{tables:{positions:rows}},{tables:{positions:rows}}]).length,2);
  let calls=0;const old={groww_slug:'two',ltp:42,fetched_at:'2026-11-22T04:00:00Z',source:'test'};
- const result=await fetchQuotes(rows,{instruments:{one:{symbol:'ONE',exchange:'NSE'},two:{symbol:'TWO',exchange:'NSE'}},previous:[old],delay:async()=>{},fetcher:async()=>++calls===1?Response.json({ltp:100}):new Response('',{status:429,headers:{'retry-after':'900'}})});
+ const result=await fetchQuotes(rows,{instruments:{one:{symbol:'ONE',exchange:'NSE'},two:{symbol:'TWO',exchange:'NSE'}},previous:[old],delay:async()=>{},crossCheck:false,fetcher:async()=>++calls===1?Response.json({ltp:100}):new Response('',{status:429,headers:{'retry-after':'900'}})});
  assert.equal(calls,2);assert.equal(result.fresh,1);assert.equal(result.stopped,true);assert.equal(result.retryAfterMs,900000);assert.deepEqual(result.quotes.find(q=>q.groww_slug==='two'),old);
 });
 test('official quotes batch at most fifty instruments and share one authenticated request per batch',async()=>{
@@ -64,4 +64,14 @@ test('blocked PIN state survives a later cache failure and prevents more automat
 test('unfinished immutable Drive uploads are invisible under snapshot filenames',async()=>{
  const calls=[];const p=new Publisher('synthetic','root');p.children=async()=>[];p.mutation=async(path,options)=>{calls.push({path,...options});return {id:'created'};};await p.jsonFile('20261123T040000Z__aaaaaaaaaaaa.json','parent',{test:true},{immutable:true});
  assert.match(calls[0].body.name,/^\.pending-/);assert.equal(calls[1].upload,true);assert.equal(calls[2].body.name,'20261123T040000Z__aaaaaaaaaaaa.json');
+});
+test('collector cross-checks Groww against Yahoo and uses Yahoo where Groww fails',async()=>{
+ const rows=[{groww_slug:'one',qty:1},{groww_slug:'two',qty:1,exchange:'BSE',symbol:'544937'}];
+ const result=await fetchQuotes(rows,{instruments:{one:{symbol:'ONE',exchange:'NSE'}},delay:async()=>{},now:new Date('2026-11-25T06:00:00Z'),fetcher:async url=>{
+  if(url.includes('yahoo'))return url.includes('ONE.NS')?Response.json({chart:{result:[{meta:{regularMarketPrice:101,regularMarketTime:1795589392}}]}}):Response.json({chart:{result:[{meta:{regularMarketPrice:2000}}]}});
+  return url.includes('/ONE')?Response.json({ltp:100}):new Response('',{status:500});}});
+ assert.deepEqual(result.check[0],['one',100,101,1,'2026-11-25T06:49:52.000Z']);
+ assert.deepEqual(result.check[1].slice(0,4),['two',null,2000,null]);
+ const two=result.quotes.find(q=>q.groww_slug==='two');assert.equal(two.source,'yahoo');assert.equal(two.ltp,2000);assert.equal(two.exchange,'BSE');
+ assert.equal(result.fresh,2);assert.deepEqual(result.failures,[]);
 });

@@ -45,7 +45,9 @@ export async function materializePositions(legacy=[],positions=[],priceSnapshots
    const ltp=use?quote.ltp:r.reference_price;
    dates.add(time.slice(0,10));times.push(time);if(use){quoteTimes.push(time);if(now-Date.parse(time)>20*60000)stale++;}else fallback++;
    const value=num(ltp)&&num(r.qty)?ltp*r.qty:r.reference_value??null;
-   return {groww_slug:r.groww_slug,name:r.name,qty:r.qty,invested:r.invested,avg_price:r.avg_price??null,ltp:ltp??null,current_value:value};
+   // Exchange symbol (for live prices): from the position capture, else from the newest saved quote.
+   const exchange=r.symbol?r.exchange:quote?.symbol?quote.exchange:null,symbol=r.symbol||quote?.symbol||null;
+   return {groww_slug:r.groww_slug,name:r.name,qty:r.qty,invested:r.invested,avg_price:r.avg_price??null,ltp:ltp??null,current_value:value,...(symbol&&['NSE','BSE'].includes(exchange)?{exchange,symbol:String(symbol)}:{})};
   });
   const captured=[entry.snapshot.captured_at,...times].sort().at(-1);
   const doc={...entry.snapshot,dataset:'groww.live_holdings',source:'groww',method:'api',captured_at:captured,as_of:dates.size===1?[...dates][0]:rows.length?null:entry.snapshot.as_of,meta:{progressive:true,positions_captured_at:entry.snapshot.captured_at},tables:{holdings:rows}};

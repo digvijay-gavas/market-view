@@ -1,7 +1,8 @@
 import {bmRows} from './bm.js';
 import {DriveDashboardCache,READ_SCOPE,CACHE_SCOPE,makeDriveCache,cacheAge,reuseSharedCache} from './drive-cache.js';
 import {oauthConfig,PRICE_PROXY_URL} from './config.js';
-import {LivePrices,LIVE_MODES,applyQuotes,holdingSlugs} from './live-prices.js';
+import {LivePrices,LIVE_MODES,applyQuotes,holdingItems} from './live-prices.js';
+import {PriceLog} from './price-log.js';
 import {raceScale,raceProgress,shortAgo,accountColors,donutSlices} from './charts.js';
 import {decryptClientId} from './pin.js';
 import {RefreshSchedule} from './refresh.js';
@@ -23,7 +24,15 @@ let bmFilter='all',cloudCache=null,cacheSavedAt=null,cacheMessage='';
 let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
 const loading=(message,value=0)=>{$('load-progress').hidden=false;$('loading-bar').value=value;status(message);};
 const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
-const live=new LivePrices({endpoint:PRICE_PROXY_URL,slugs:()=>store?holdingSlugs(store.snapshots):[],onChange:renderLive});
+let priceLog=null;
+// Each live fetch is logged to market-view-data/_price-log (only when this login may write to Drive).
+function logPrices(entry){
+ const rootId=store?.root?.id;if(!cloudCache||!rootId)return;
+ if(priceLog?.drive!==cloudCache||priceLog.rootId!==rootId)priceLog=new PriceLog({drive:cloudCache,rootId});
+ priceLog.add(entry);
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')priceLog?.flush().catch(()=>{});});
+const live=new LivePrices({endpoint:PRICE_PROXY_URL,items:()=>store?holdingItems(store.snapshots):[],onLog:logPrices,onChange:renderLive});
 let liveView={source:null,version:-1,snapshots:null},liveRendered=0;
 // Live quotes overlay the loaded snapshots in memory only; store (and the Drive/browser caches) keep saved prices.
 function liveSnapshots(){if(!store||!live.quotes.size)return null;if(liveView.source!==store.snapshots||liveView.version!==live.version)liveView={source:store.snapshots,version:live.version,snapshots:applyQuotes(store.snapshots,live.quotes)};return liveView.snapshots;}
@@ -43,7 +52,7 @@ function renderAgo(){
  if(live.note)parts.push(live.note);if(live.error)parts.push(live.error);
  if(!live.enabled)parts.push('Live prices off');
  $('live-status').textContent=parts.join(' · ');$('live-status').classList.toggle('error',Boolean(live.error));
- $('live-status').title=[t.prices&&'Prices: '+stamp(t.prices)+(t.livePrices?' (live overlay, not saved)':''),t.positions&&'Positions: '+stamp(t.positions)].filter(Boolean).join('\n');
+ $('live-status').title=[t.prices&&'Prices: '+stamp(t.prices)+(t.livePrices?' (live overlay, not saved)':''),t.positions&&'Positions: '+stamp(t.positions),live.lastLog&&'Last live fetch: '+(Object.entries(live.lastLog.bySource).map(([k,n])=>k+' '+n).join(', ')||'none')+(live.lastLog.failed.length?', saved '+live.lastLog.failed.length:'')].filter(Boolean).join('\n');
 }
 function renderLive(){
  for(const b of $('live-mode').children){b.setAttribute('aria-checked',String(b.dataset.mode===live.mode));b.disabled=!live.enabled;}

@@ -6,6 +6,7 @@ import {buildPortfolio,validateSnapshot,SNAPSHOT,newestValid} from '../src/model
 import {canonical,hashJSON} from '../src/progressive.js';
 import {DriveDashboardCache,makeDriveCache} from '../src/drive-cache.js';
 import {MV_FOLDER,MV_DATASETS,MV_OWNER_FILE,MV_OWNER_DOC,MV_OWNER_NOTE} from '../src/mv-data.js';
+import {LOG_FOLDER,appendEntries,istDay,logFileName} from '../src/price-log.js';
 export const DATASETS={
  'portfolio.positions':{version:1,semantics:'latest',partition:'account',hash_ignore_meta:[],max_age_hours:36},
  'market.prices':{version:1,semantics:'latest',partition:'shared',hash_ignore_meta:[],max_age_hours:1},
@@ -76,6 +77,13 @@ export class Publisher extends DriveReader{
   if(!signature||signature!==after)throw new Error('SOURCE_CHANGED_DURING_COMPILE');
   store.sourceSignature=signature;const views=new Map([['null',buildPortfolio(store.snapshots,store.dividends,'',store.reports||[],store.smallcases||[])]]);
   await cache.save(this.rootId,makeDriveCache(store,views));return {reused:false};
+ }
+ // Price-source reliability log (market-view-data/_price-log/collector-<IST day>.json).
+ async appendPriceLog(entries,now=new Date()){
+  const day=istDay(now),name=logFileName('collector',day),folder=await this.folder(LOG_FOLDER,this.rootId);
+  const file=(await this.children([folder])).find(f=>f.name===name);let existing=null;
+  if(file)try{existing=await this.readJSON(file);}catch{}
+  await this.jsonFile(name,folder,appendEntries(existing,entries,{kind:'collector',day}));
  }
  async status(doc){await this.jsonFile('_market-view-collector-status.json',this.rootId,doc);}
 }

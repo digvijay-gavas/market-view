@@ -8,10 +8,10 @@ export const CACHE_FILE='_market-view-dashboard-cache.json';
 import {MV_FOLDER} from './mv-data.js';
 const FOLDER_TYPE='application/vnd.google-apps.folder';
 export const RECHECK_MS=4*3600000;
-export const CACHE_VERSION=9;
+export const CACHE_VERSION=10;
 const MAX_BYTES=24*1024*1024;
 const pick=(value,keys)=>Object.fromEntries(keys.filter(k=>value?.[k]!==undefined).map(k=>[k,value[k]]));
-const fields={holdings:['groww_slug','name','qty','invested','avg_price','ltp','current_value'],credits:['isin','ex_date','shares','amount'],open_lots:['stock_name','isin','quantity','buy_value','buy_date'],stocks:['name','weight','segment','groww_slug','isin']};
+const fields={holdings:['groww_slug','name','qty','invested','avg_price','ltp','current_value','exchange','symbol'],credits:['isin','ex_date','shares','amount'],open_lots:['stock_name','isin','quantity','buy_value','buy_date'],stocks:['name','weight','segment','groww_slug','isin']};
 function cleanSnapshot(s){
  const out=pick(s,['store_version','schema_version','dataset','partition','captured_at','as_of','content_hash','confirmedAt','fileId']);
  out.meta=pick(s.meta,['id','name','last_rebalance','progressive','positions_captured_at']);out.tables={};

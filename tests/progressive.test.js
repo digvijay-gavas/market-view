@@ -36,3 +36,10 @@ test('progressive validators reject duplicate instruments, negative quantities a
  assert.throws(()=>validateProgressive({dataset:'market.prices',tables:{quotes:[{groww_slug:'x',ltp:1,source:'test'}]}}));
  assert.doesNotThrow(()=>validateProgressive(pos('a',[])));
 });
+test('holdings carry the exchange symbol from the capture, else from a saved quote',async()=>{
+ const q={tables:{quotes:[{groww_slug:'example',ltp:110,fetched_at:'2026-11-23T04:10:00.000Z',quoted_at:null,source:'test',exchange:'NSE',symbol:'EXMPL'}]}};
+ const fromQuote=await materializePositions([],[pos('a',[row()])],[q],Date.parse('2026-11-23T04:15:00Z'));
+ assert.deepEqual([fromQuote.snapshots[0].tables.holdings[0].exchange,fromQuote.snapshots[0].tables.holdings[0].symbol],['NSE','EXMPL']);
+ const fromRow=await materializePositions([],[pos('a',[{...row(),exchange:'BSE',symbol:'544937'}])],[q],Date.parse('2026-11-23T04:15:00Z'));
+ assert.equal(fromRow.snapshots[0].tables.holdings[0].symbol,'544937');assert.equal(fromRow.snapshots[0].tables.holdings[0].exchange,'BSE');
+});
