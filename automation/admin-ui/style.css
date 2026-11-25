@@ -11,3 +11,5 @@ select{font:inherit;min-width:0;max-width:100%;width:100%;background:#fbfcfa;bor
 
 label.check{display:flex;gap:8px;align-items:center;font-weight:inherit}
 label.check input{width:auto;margin:0}
+
+.script-recent{margin:6px 0 0;padding-left:18px;font-size:12px;line-height:1.5;color:var(--muted,#9aa)}

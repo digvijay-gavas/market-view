@@ -1,22 +1,34 @@
 import {collectCycle} from './collector.js';
 import {closeOwnedWindow} from './owned-window.js';
+import {scriptLoop} from './script-runner.js';
 const owned=new Set();
 async function runOwned(tab,ticket){if(owned.has(ticket))return {state:'busy'};owned.add(ticket);try{const tabs=await chrome.tabs.query({windowId:tab.windowId});if(tabs.length===1&&tabs[0].id===tab.id)await chrome.windows.update(tab.windowId,{state:'minimized'});return await collect(true,{windowId:tab.windowId,runnerTicket:ticket});}finally{owned.delete(ticket);await closeOwnedWindow(chrome,tab).catch(()=>{});}}
-let busy=false;
+let busy=false,updateReady=false,jobRunning=false;
+// The collector serves the extension folder's version; when it is newer than this loaded copy,
+// reload (Chrome re-reads an unpacked extension from disk) once nothing is running.
+const newer=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<3;i++){if((x[i]||0)!==(y[i]||0))return (x[i]||0)>(y[i]||0);}return false;};
+function maybeReload(){if(updateReady&&!busy&&!jobRunning)chrome.runtime.reload();}
 async function settings(){const data=await chrome.storage.local.get(['pairing','clientId','bridgePort']);if(!data.clientId){data.clientId=crypto.randomUUID();await chrome.storage.local.set({clientId:data.clientId});}return data;}
 async function api(action,body={}){
  const data=await settings(),port=Number.isInteger(data.bridgePort)&&data.bridgePort>0&&data.bridgePort<65536?data.bridgePort:5186;
  const response=await fetch('http://127.0.0.1:'+port+'/bridge/'+action,{method:'POST',headers:{'Content-Type':'application/json','X-Market-Extension':chrome.runtime.id,...(data.pairing?{Authorization:'Bearer '+data.pairing.token}:{})},body:JSON.stringify({clientId:data.clientId,version:chrome.runtime.getManifest().version,...(data.pairing?{account:data.pairing.account}:{}),...body}),credentials:'omit',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(20000)});
- const result=await response.json();if(!response.ok)throw new Error(result.error||'LOCAL_COLLECTOR_UNAVAILABLE');return result;
+ const result=await response.json();if(typeof result.latestExtension==='string'&&newer(result.latestExtension,chrome.runtime.getManifest().version))updateReady=true;if(!response.ok)throw new Error(result.error||'LOCAL_COLLECTOR_UNAVAILABLE');return result;
 }
 async function collect(manual=false,options={}){
  if(busy)return {state:'busy'};const {pairing}=await settings();if(!pairing?.confirmed)return {state:'unpaired'};busy=true;
  try{const result=await collectCycle(chrome,api,manual,options);await chrome.storage.local.set({lastResult:result});await chrome.action.setBadgeText({text:result.state==='attention'?'!':''});return result;}
  catch(error){const result={state:'attention',reason:/^[A-Z_]+$/.test(error.message||'')?error.message:'LOCAL_COLLECTOR_UNAVAILABLE'};await chrome.storage.local.set({lastResult:result});return result;}
- finally{busy=false;}
+ finally{busy=false;maybeReload();}
 }
 chrome.runtime.onInstalled.addListener(details=>{if(details.reason==='install')chrome.tabs.create({url:chrome.runtime.getURL('popup.html')});});
 chrome.alarms.clear('daily-positions');
+// Developer script runner: checked every minute; while switched on in the local admin board the
+// worker long-polls for scripts (an open request keeps it alive), and stops when it is switched off.
+let scripting=false;
+async function scripts(){if(scripting)return;const {pairing}=await settings();if(!pairing?.confirmed)return;scripting=true;try{await scriptLoop(chrome,api,{onJob:on=>{jobRunning=on;if(!on)maybeReload();}});}finally{scripting=false;}}
+chrome.alarms.create('script-runner',{periodInMinutes:1});
+chrome.alarms.onAlarm.addListener(alarm=>{if(alarm.name==='script-runner'){maybeReload();scripts();}});
+scripts();
 chrome.runtime.onMessage.addListener((message,sender,respond)=>{
  if(sender.id!==chrome.runtime.id||!sender.url||(!sender.url.startsWith(chrome.runtime.getURL(''))&&message.action!=='managed'))return false;
  const work=async()=>{

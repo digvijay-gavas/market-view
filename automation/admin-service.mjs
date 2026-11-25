@@ -8,6 +8,7 @@ import {accessToken} from './drive.mjs';
 import {extrasConfig} from './extras.mjs';
 import {DriveReader,folderId} from '../src/drive.js';
 import {installTask,taskInstalled,setTaskEnabled} from './task.mjs';
+import {ScriptRunner} from './script-runner.mjs';
 import {savedProfiles} from './profiles.mjs';
 import {ExtensionBridge} from './extension-bridge.mjs';
 import {openChromeExtensions} from './normal-chrome.mjs';
@@ -21,11 +22,12 @@ export class AdminService{
  constructor(home,deps={}){
   this.home=home;this.configPath=join(home,'config.json');this.job=null;this.pending=false;
   this.deps={openVault:(create=false)=>new Vault(home).open(create),lock:()=>lock(home),readJSON,atomicJSON,protectHome,googleLogin,openProfile,waitReady,accessToken,reader:token=>new DriveReader(token),installTask,taskInstalled,setTaskEnabled,run,managedRun,savedProfiles,...deps};
+  this.scripts=new ScriptRunner(home);
   this.bridge=new ExtensionBridge(home,{...this.deps,afterCapture:async()=>{const vault=await this.deps.openVault(),config=await this.configured();if(vault.data.google?.refresh_token&&config.rootId)return this.deps.run(home,{force:true,positionsNow:true});return {pending:true};}});
  }
  async status(){
   const config=await this.deps.readJSON(this.configPath,null),state=await this.deps.readJSON(join(this.home,'state.json'),{});
-  if(!config)return {initialized:false,accounts:[],job:this.publicJob()};
+  if(!config)return {initialized:false,accounts:[],job:this.publicJob(),scriptRunner:this.scripts.status()};
   const [vault,installed,profiles]=await Promise.all([this.deps.openVault(),this.deps.taskInstalled(),this.deps.savedProfiles()]);
   return {initialized:true,extensionFolder:join(REPO,'extension'),profiles:profiles.map(({id,label})=>({id,label})),googleConnected:Boolean(vault.data.google?.refresh_token),googleClientSaved:Boolean(vault.data.desktopClient),rootId:config.rootId,enabled:config.enabled,taskInstalled:installed,schedule:config.schedule,pricesEnabled:config.pricesEnabled!==false,extrasSettings:extrasConfig(config),bm:(()=>{const s=extrasConfig(config).smallcases[0];return s?{id:s.id,account:s.account,status:vault.data.accounts[s.account]?.extension?.extrasStatus?.bm?.[s.id.toLowerCase()]||null}:null;})(),positionsCadence:config.positionsCadence||'daily',syncHistory:await this.deps.readJSON(join(this.home,'sync-history.json'),[]),lastRunAt:state.lastRunAt||null,dailyCapture:state.dailyCapture||null,lastRunSummary:state.lastRunSummary||null,nextRunAt:state.nextRunAt||null,lastError:state.lastError?.code||null,accounts:config.accounts.map(a=>({id:a.id,profileId:a.profileDirectory?profiles.find(p=>p.path===a.profileDirectory)?.id||'unavailable':'dedicated',suggestedProfile:a.legacyProfileHint,pairingPending:this.bridge.pending(a.id),reconciliation:captureOperation(vault.data.accounts[a.id]?.extension),extensionPaired:Boolean(vault.data.accounts[a.id]?.extension?.confirmed),extensionCapturedAt:vault.data.accounts[a.id]?.extension?.capture?.capturedAt||null,extensionError:vault.data.accounts[a.id]?.extension?.lastError||null,extensionErrorDetail:vault.data.accounts[a.id]?.extension?.lastErrorDetail||null,extensionVersion:vault.data.accounts[a.id]?.extension?.extensionVersion||null,pinSaved:Boolean(vault.data.accounts[a.id]?.pin),enrolled:Boolean(vault.data.accounts[a.id]?.bound),blocked:state.blocked?.[a.id]||(vault.data.accounts[a.id]?.pinAttemptPending?'PIN_CHECK_REQUIRED':null),lastPosition:state.positions?.[a.id]?.capturedAt||null,extras:vault.data.accounts[a.id]?.extension?.extrasStatus||null})),job:this.publicJob()};
  }

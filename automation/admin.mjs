@@ -33,9 +33,18 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
     if(extensionOrigin)res.setHeader('Access-Control-Allow-Origin',extensionOrigin);
     if(req.method==='OPTIONS'){res.writeHead(204,{...headers,'Access-Control-Allow-Methods':'POST','Access-Control-Allow-Headers':'Content-Type, X-Market-Extension, Authorization','Vary':'Origin'});res.end();return;}
     if(req.method!=='POST'||req.headers['x-market-extension']!==extensionId||req.headers['content-type']?.split(';')[0]!=='application/json')return send(403,{error:'EXTENSION_ORIGIN_REQUIRED'});
-    if(Number(req.headers['content-length']||0)>1048576)return send(413,{error:'REQUEST_TOO_LARGE'});
-    const action=url.pathname.slice('/bridge/'.length);if(!['pair','confirm','poll','unlock','result','error'].includes(action))return send(404,{error:'NOT_FOUND'});
-    const input=await bodyJSON(req,1048576),token=req.headers.authorization?.replace(/^Bearer /,'');return send(200,await service.bridge.call(action,input,extensionId,token));
+    if(Number(req.headers['content-length']||0)>2*1048576)return send(413,{error:'REQUEST_TOO_LARGE'});
+    const action=url.pathname.slice('/bridge/'.length);if(!['pair','confirm','poll','unlock','result','error','script-wait','script-result'].includes(action))return send(404,{error:'NOT_FOUND'});
+    const input=await bodyJSON(req,2*1048576),token=req.headers.authorization?.replace(/^Bearer /,'');
+    // Every bridge answer carries the extension version on disk; an older loaded copy reloads itself.
+    const latestExtension=await readFile(new URL('../extension/manifest.json',import.meta.url),'utf8').then(t=>JSON.parse(t).version).catch(()=>null);
+    const reply=(data)=>send(200,data&&typeof data==='object'&&!Array.isArray(data)?{...data,latestExtension}:data);
+    // Developer script runner: the paired extension fetches jobs for its own account and returns results.
+    if(action.startsWith('script-')){
+     await service.bridge.authenticated(input,extensionId,token);  // read-only check; no collector lock (runs may hold it)
+     return reply(action==='script-wait'?await service.scripts.take(input.account,15000):service.scripts.complete(input.account,input));
+    }
+    return reply(await service.bridge.call(action,input,extensionId,token));
    }
    if(req.method==='GET'&&assets.has(url.pathname)){
     const [file,mime]=assets.get(url.pathname);res.writeHead(200,{...headers,'Content-Type':mime});res.end(await readFile(new URL('admin-ui/'+file,import.meta.url)));return;
@@ -51,6 +60,16 @@ export function createAdminServer({service,key=randomBytes(32).toString('base64u
    const cookie=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('market_view_admin='))?.slice('market_view_admin='.length);
    if(!equal(cookie,session)||req.headers['x-collector-admin']!=='1')return send(403,{error:'ADMIN_SESSION_REQUIRED'});
    if(req.method==='GET'&&url.pathname==='/api/status')return send(200,await service.status());
+   // Script runner (admin session only): switch on/off for a while, submit a script, read a result.
+   if(req.method==='GET'&&url.pathname==='/api/script')return send(200,service.scripts.get(url.searchParams.get('id')));
+   if(req.method==='POST'&&url.pathname==='/api/script'){
+    if(req.headers['content-type']?.split(';')[0]!=='application/json')return send(415,{error:'JSON_REQUIRED'});
+    const input=await bodyJSON(req,256*1024);
+    if(input.op==='enable')return send(200,service.scripts.enable(input.minutes??30));
+    if(input.op==='disable')return send(200,service.scripts.disable());
+    if(input.op==='run'){const config=await service.configured();return send(200,service.scripts.submit(input,config.accounts.filter(a=>a.enabled!==false).map(a=>a.id)));}
+    return send(400,{error:'UNKNOWN_ACTION'});
+   }
    if(req.method==='POST'&&url.pathname==='/api/action'){
     if(req.headers['content-type']?.split(';')[0]!=='application/json')return send(415,{error:'JSON_REQUIRED'});
     if(Number(req.headers['content-length']||0)>MAX_BODY)return send(413,{error:'REQUEST_TOO_LARGE'});

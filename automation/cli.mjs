@@ -64,6 +64,7 @@ export async function main(args=process.argv.slice(2)){
   let historyResult=null;if(daily.due)try{const {history}=await import('./worker.mjs');historyResult=await history(home);}catch(error){historyResult={error:String(error.message||error)};}
   console.log(JSON.stringify({ran:result.ran,reason:result.reason,daily:daily.due,history:historyResult}));return;
  }
+ if(command==='script'){const {scriptCommand}=await import('./script-cli.mjs');console.log(JSON.stringify(await scriptCommand(home,args.slice(1)),null,2));return;}
  if(command==='history'){const {history}=await import('./worker.mjs');console.log(JSON.stringify(await history(home),null,2));return;}
  if(command==='run'){const result=await run(home,{force:args.includes('--force'),positionsNow:args.includes('--positions-now'),dryRun:args.includes('--dry-run')});console.log(JSON.stringify({ran:result.ran,reason:result.reason,checkpoint:result.checkpoint},null,2));return;}
  if(command==='status'){const config=await readJSON(configPath,null),state=await readJSON(join(home,'state.json'),{});console.log(JSON.stringify({home,enabled:config?.enabled,rootConfigured:Boolean(config?.rootId),accounts:config?.accounts.map(a=>({id:a.id,state:state.blocked?.[a.id]||state.accounts?.[a.id]||'not_enrolled',lastPosition:state.positions?.[a.id]?.capturedAt})),lastRunAt:state.lastRunAt,nextRunAt:state.nextRunAt,lastError:state.lastError},null,2));return;}
