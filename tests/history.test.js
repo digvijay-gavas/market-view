@@ -24,11 +24,11 @@ test('history XIRR uses only lots bought by each day',()=>{
 });
 test('series starts when every chosen account has data; XIRR only for all or one account',()=>{
  const h=validHistory(buildHistory({captures,closes,to:'2026-11-04'}));
- const all=historySeries(h,null,'return');assert.equal(all.since,'2026-11-03');assert.equal(all.points.length,2);
- assert.ok(Math.abs(all.points[0].value-5)<1e-9,'(110+100)/(100+100)-1');
- assert.equal(historySeries(h,['x'],'return').points.length,3);
- assert.equal(historySeries(h,['x','y','z'],'return').points.length,2,'unknown accounts are ignored');
- const g=chartGeometry(all.points);assert.ok(g.path.startsWith('M'));assert.ok(g.ticks.some(t=>t.v===0));
+ const all=historySeries(h,null,'multiple');assert.equal(all.since,'2026-11-03');assert.equal(all.points.length,2);
+ assert.ok(Math.abs(all.points[0].value-1.05)<1e-9,'(110+100)/(100+100)');
+ assert.equal(historySeries(h,['x'],'multiple').points.length,3);
+ assert.equal(historySeries(h,['x','y','z'],'multiple').points.length,2,'unknown accounts are ignored');
+ const g=chartGeometry(all.points,{base:1});assert.ok(g.path.startsWith('M'));assert.ok(g.ticks.some(t=>t.base&&t.v===1),'break-even line at 1');
  assert.equal(chartGeometry(all.points.slice(0,1)),null);
  assert.equal(validHistory({version:2,points:[]}),null);
 });

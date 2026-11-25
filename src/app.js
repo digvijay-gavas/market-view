@@ -209,7 +209,7 @@ function bar(container,name,value,share,colour='') {
 const calculations=new WeakMap();
 function current(){const liveSnaps=liveSnapshots(),owner=liveSnaps||store;let accounts=calculations.get(owner);if(!accounts){accounts=new Map();calculations.set(owner,accounts);}const key=JSON.stringify(selectedAccounts);if(!accounts.has(key))accounts.set(key,buildPortfolio(liveSnaps||store.snapshots,store.dividends,selectedAccounts??'',store.reports||[],store.smallcases||[]));return accounts.get(key);}
 // Overview history (written daily by the collector). Loaded once per folder, after the dashboard.
-let history=null,historyRoot=null,historyMetric='return';
+let history=null,historyRoot=null,historyMetric='multiple';
 async function loadHistory(force=false){
  const rootId=store?.root?.id;if(!rootId||!cloudCache||(!force&&historyRoot===rootId))return;historyRoot=rootId;
  try{
@@ -222,28 +222,29 @@ const signedPct=v=>(v>0?'+':'')+v.toFixed(2)+'%';
 function renderHistory(){
  const box=$('history-chart');if(!box)return;
  for(const b of $('history-metric').children)b.setAttribute('aria-checked',String(b.dataset.metric===historyMetric));
- $('history-title').textContent=historyMetric==='xirr'?'XIRR over time':'Return on invested';
+ const isX=historyMetric==='xirr',fmt=v=>isX?signedPct(v):v.toFixed(3)+'×';
+ $('history-title').textContent=isX?'XIRR over time':'Current value ÷ invested';
  if(!history){box.replaceChildren();$('history-sub').textContent='';$('history-note').textContent=historyRoot?'No history yet. The collector builds it after each daily capture.':'Loading history…';return;}
- const s=historySeries(history,selectedAccounts,historyMetric),w=Math.max(280,Math.round(box.clientWidth||640)),g=chartGeometry(s.points,{width:w,height:Math.round(Math.min(220,Math.max(150,w*0.42)))});
+ const s=historySeries(history,selectedAccounts,historyMetric),w=Math.max(280,Math.round(box.clientWidth||640)),g=chartGeometry(s.points,{base:isX?0:1,width:w,height:Math.round(Math.min(220,Math.max(150,w*0.42)))});
  if(!g){box.replaceChildren();$('history-sub').textContent='';$('history-note').textContent=s.reason||'Not enough history yet.';return;}
  const last=s.points.at(-1);
- $('history-sub').textContent=signedPct(last.value)+' on '+day(last.date)+' · since '+day(s.since);
+ $('history-sub').textContent=fmt(last.value)+' on '+day(last.date)+' · since '+day(s.since);
  const NS='http://www.w3.org/2000/svg',el=(name,attrs,text)=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text!=null)e.textContent=text;return e;};
  const svg=el('svg',{viewBox:`0 0 ${g.width} ${g.height}`,class:'history-svg',role:'img','aria-label':$('history-title').textContent+': '+$('history-sub').textContent});
- for(const t of g.ticks){svg.append(el('line',{x1:g.pad.l,x2:g.width-g.pad.r,y1:t.y,y2:t.y,class:t.v===0?'h-zero':'h-grid'}),el('text',{x:g.pad.l-6,y:t.y+3,class:'h-axis','text-anchor':'end'},(t.v>0?'+':'')+t.v+'%'));}
+ for(const t of g.ticks){svg.append(el('line',{x1:g.pad.l,x2:g.width-g.pad.r,y1:t.y,y2:t.y,class:t.base?'h-zero':'h-grid'}),el('text',{x:g.pad.l-6,y:t.y+3,class:'h-axis','text-anchor':'end'},isX?(t.v>0?'+':'')+t.v+'%':t.v.toFixed(2)+'×'));}
  for(const m of g.months)svg.append(el('text',{x:m.x,y:g.height-6,class:'h-axis','text-anchor':'middle'},new Date(m.d+'T00:00:00Z').toLocaleString('en-IN',{month:'short',timeZone:'UTC'})));
- svg.append(el('path',{d:g.path,class:'h-line '+(last.value<0?'neg':'pos')}));
+ svg.append(el('path',{d:g.path,class:'h-line'}));
  const cross=el('line',{class:'h-cross',y1:g.pad.t,y2:g.height-g.pad.b,visibility:'hidden'}),dot=el('circle',{r:4,class:'h-dot',visibility:'hidden'});svg.append(cross,dot);
  const tip=document.createElement('div');tip.className='history-tip';tip.hidden=true;
  const move=event=>{
   const r=svg.getBoundingClientRect(),x=(event.clientX-r.left)/r.width*g.width;let i=0;for(let k=1;k<g.xy.length;k++)if(Math.abs(g.xy[k][0]-x)<Math.abs(g.xy[i][0]-x))i=k;
   const [px,py]=g.xy[i],p=s.points[i];for(const [k,v] of [['x1',px],['x2',px]])cross.setAttribute(k,v);dot.setAttribute('cx',px);dot.setAttribute('cy',py);cross.setAttribute('visibility','visible');dot.setAttribute('visibility','visible');
-  tip.hidden=false;tip.textContent=day(p.date)+' · '+signedPct(p.value)+(p.invested?' · '+money(p.current)+' of '+money(p.invested):'')+(p.coverage!=null&&p.coverage<0.95?' · '+Math.round(p.coverage*100)+'% of cost has lots':'');
+  tip.hidden=false;tip.textContent=day(p.date)+' · '+fmt(p.value)+(p.invested?' · '+money(p.current)+' of '+money(p.invested):'')+(p.coverage!=null&&p.coverage<0.95?' · '+Math.round(p.coverage*100)+'% of cost has lots':'');
   tip.style.left=Math.min(Math.max(0,px/g.width*r.width-80),r.width-170)+'px';
  };
  svg.addEventListener('pointermove',move);svg.addEventListener('pointerdown',move);svg.addEventListener('pointerleave',()=>{tip.hidden=true;cross.setAttribute('visibility','hidden');dot.setAttribute('visibility','hidden');});
  box.replaceChildren(svg,tip);
- $('history-note').textContent=historyMetric==='xirr'?'XIRR per day uses purchase lots bought by that day; holdings sold since have no lots and drop out.':"Each day values the holdings from each account's latest capture at that day's closing price.";
+ $('history-note').textContent=historyMetric==='xirr'?'XIRR per day uses purchase lots bought by that day; holdings sold since have no lots and drop out.':"1.00× = break-even; below 1 is a loss, above 1 a gain. Each day values each account's latest capture at that day's closing price.";
 }
 let historyWidth=0;addEventListener('resize',()=>{const w=$('history-chart').clientWidth;if(history&&Math.abs(w-historyWidth)>24){historyWidth=w;renderHistory();}});
 $('history-metric').addEventListener('click',event=>{const b=event.target.closest('[data-metric]');if(!b)return;historyMetric=b.dataset.metric;renderHistory();});
