@@ -57,7 +57,7 @@ export class Publisher extends DriveReader{
   const parts=(await this.children(roots.map(f=>f.id))).filter(f=>f.name===partition&&f.mimeType==='application/vnd.google-apps.folder');if(!parts.length)return null;
   const files=(await this.children(parts.map(f=>f.id))).filter(f=>SNAPSHOT.test(f.name));return newestValid(files,f=>this.readJSON(f),dataset,partition);
  }
- async publish(dataset,partition,tables,meta={},at=new Date(),{asOf}={}){
+ async publish(dataset,partition,tables,meta={},at=new Date(),{asOf,daily=false}={}){
   if(!/^[a-z0-9_-]+$/.test(partition))throw new Error('INVALID_PARTITION');
   if(![...Object.keys(this.datasets),...(this.datasets===DATASETS?['groww.live_holdings']:[])].includes(dataset))throw new Error('INVALID_DATASET');
   const doc={store_version:1,schema_version:1,dataset,partition,source:dataset==='market.prices'?'market':dataset==='bm.weights'?'smallcase':'groww',method:dataset==='market.prices'?'api':dataset==='pnl.lots'?'export':'scrape',captured_at:at.toISOString(),as_of:asOf||new Date(+at+330*60000).toISOString().slice(0,10),writer:hostname().toLowerCase().replace(/[^a-z0-9_-]/g,'-'),producer:'market-view-collector/1',meta,tables};
@@ -65,7 +65,10 @@ export class Publisher extends DriveReader{
   if(dataset!=='portfolio.position_changes')validateSnapshot(doc,dataset,partition);
   const previous=dataset==='portfolio.position_changes'?null:await this.latest(dataset,partition);
   const same=previous&&JSON.stringify(canonical({as_of:previous.as_of,meta:previous.meta,tables:previous.tables}))===JSON.stringify(canonical({as_of:doc.as_of,meta:doc.meta,tables:doc.tables}));
-  if(same)return {doc:previous,changed:false};
+  // `daily`: unchanged content is still saved once per IST day, so "last captured" stays true
+  // (BM weights are dated by their rebalance, so an unchanged daily check would otherwise vanish).
+  const istDay=iso=>new Date(Date.parse(iso)+330*60000).toISOString().slice(0,10);
+  if(same&&!(daily&&istDay(previous.captured_at)<istDay(doc.captured_at)))return {doc:previous,changed:false};
   const folder=await this.folder(partition,await this.folder(dataset,this.rootId));const stamp=doc.captured_at.replace(/[-:]/g,'').slice(0,15)+'Z';
   const name=stamp+'__'+doc.content_hash.slice(7,19)+'.json';await this.jsonFile(name,folder,doc,{immutable:true});return {doc,changed:true};
  }

@@ -75,3 +75,14 @@ test('collector cross-checks Groww against Yahoo and uses Yahoo where Groww fail
  const two=result.quotes.find(q=>q.groww_slug==='two');assert.equal(two.source,'yahoo');assert.equal(two.ltp,2000);assert.equal(two.exchange,'BSE');
  assert.equal(result.fresh,2);assert.deepEqual(result.failures,[]);
 });
+test('unchanged BM weights are saved again once per IST day when publishing with daily',async()=>{
+ const {MV_DATASETS}=await import('../src/mv-data.js'),{DATASETS}=await import('../automation/drive.mjs');
+ const tables={stocks:[{name:'A',weight:60,segment:null},{name:'B',weight:40,segment:null}]},meta={id:'BAMIMO_0002',name:'BM',manager:null,last_rebalance:'2026-11-10',next_rebalance:null};
+ const make=previousAt=>{const p=new Publisher('synthetic','root',{datasets:{...DATASETS,...MV_DATASETS}});const written=[];
+  p.latest=async()=>({as_of:'2026-11-10',meta,tables,captured_at:previousAt});p.folder=async()=>'f';p.jsonFile=async name=>{written.push(name);return 'id';};return {p,written};};
+ const sameDay=make('2026-11-25T05:00:00Z');assert.equal((await sameDay.p.publish('bm.weights','bamimo_0002',tables,meta,new Date('2026-11-25T16:00:00Z'),{asOf:'2026-11-10',daily:true}).catch(e=>({error:e.message}))).changed,false);
+ const nextDay=make('2026-11-24T16:00:00Z');const r=await nextDay.p.publish('bm.weights','bamimo_0002',tables,meta,new Date('2026-11-25T16:00:00Z'),{asOf:'2026-11-10',daily:true}).catch(e=>({error:e.message}));
+ const plain=make('2026-11-24T16:00:00Z');const q=await plain.p.publish('bm.weights','bamimo_0002',tables,meta,new Date('2026-11-25T16:00:00Z'),{asOf:'2026-11-10'}).catch(e=>({error:e.message}));
+ assert.equal(r.error,undefined,r.error);assert.equal(r.changed,true);assert.equal(nextDay.written.length,1);
+ assert.equal(q.changed,false,'without daily, unchanged content is not rewritten');
+});

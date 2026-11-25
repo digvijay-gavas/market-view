@@ -59,5 +59,5 @@ export async function publishExtras(ext,account,getStore){
  const pending=ext?.pendingExtras;if(!pending||(!pending.pnl&&!pending.bm?.length))return;
  const mv=await getStore();
  if(pending.pnl){const p=pending.pnl;await mv.publish('pnl.lots',account,p.tables,p.meta,new Date(p.capturedAt),{asOf:p.asOf});delete pending.pnl;if(ext.extrasStatus?.pnl)ext.extrasStatus.pnl.publishedAt=new Date().toISOString();}
- while(pending.bm?.length){const w=pending.bm[0];await mv.publish('bm.weights',w.id,w.tables,w.meta,new Date(w.capturedAt),{asOf:w.asOf||undefined});pending.bm.shift();if(ext.extrasStatus?.bm?.[w.id])ext.extrasStatus.bm[w.id].publishedAt=new Date().toISOString();}
+ while(pending.bm?.length){const w=pending.bm[0];await mv.publish('bm.weights',w.id,w.tables,w.meta,new Date(w.capturedAt),{asOf:w.asOf||undefined,daily:true});pending.bm.shift();if(ext.extrasStatus?.bm?.[w.id])ext.extrasStatus.bm[w.id].publishedAt=new Date().toISOString();}
 }
