@@ -44,6 +44,13 @@ test('daily capture: its own task trigger, due once per IST day from its time, h
  assert.equal(dailyDue({...config,enabled:false},{},sunday8pm).reason,'DISABLED');
  assert.equal(dailyDue({...config,schedule:{...config.schedule,dailyCapture:false}},{},sunday8pm).reason,'DAILY_CAPTURE_OFF');
  assert.equal(dailyDue({...config,schedule:{...config.schedule,dailyCaptureAt:'06:30'}},{},sunday7pm).due,true);
+ // Missed slots are caught up by the next run (e.g. the 09:15 tick after a missed 20:00), once.
+ const mondayMorning=new Date('2026-11-23T03:45:00Z'),mondayNight=new Date('2026-11-23T14:30:00Z');
+ assert.deepEqual(dailyDue(config,{dailyCapture:{day:'2026-11-21'}},mondayMorning),{due:true,day:'2026-11-22',catchUp:true});
+ assert.equal(dailyDue(config,{dailyCapture:{day:'2026-11-22'}},mondayMorning).reason,'DAILY_CAPTURE_DONE');
+ assert.deepEqual(dailyDue(config,{dailyCapture:{day:'2026-11-22'}},mondayNight),{due:true,day:'2026-11-23',catchUp:false});
+ assert.equal(dailyDue(config,{dailyCapture:{day:'2026-11-23'}},mondayNight).reason,'DAILY_CAPTURE_DONE');
+ assert.equal(dailyDue(config,{},mondayMorning).reason,'NOT_DUE','a fresh install waits for its first slot');
 });
 test('evening-only positions: market-hours runs fetch prices but never positions',()=>{
  const config={enabled:true,accounts:[{id:'a'}],positionsCadence:'evening',schedule:{open:'09:15',close:'15:30'}};

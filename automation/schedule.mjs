@@ -26,8 +26,12 @@ export function duePlan(config,state,calendar,now=new Date(),force=false){
 export function dailyDue(config,state,now=new Date()){
  if(!config.enabled)return {due:false,reason:'DISABLED'};
  if(config.schedule?.dailyCapture===false)return {due:false,reason:'DAILY_CAPTURE_OFF'};
- const t=ist(now),at=minute(config.schedule?.dailyCaptureAt||'20:00');
- if(t.minute<at)return {due:false,reason:'NOT_DUE'};
- if(state.dailyCapture?.day===t.day)return {due:false,reason:'DAILY_CAPTURE_DONE'};
- return {due:true,day:t.day};
+ const t=ist(now),at=minute(config.schedule?.dailyCaptureAt||'20:00'),done=state.dailyCapture?.day;
+ // The most recent capture slot that has passed: today's once its time is reached, else yesterday's.
+ const slot=t.minute>=at?t.day:new Date(Date.parse(t.day+'T00:00:00Z')-86400000).toISOString().slice(0,10);
+ // A missed slot (PC off, task disabled) is caught up by the next run of the task, once; a
+ // fresh install with no capture yet waits for its first slot.
+ if(done&&done<slot)return {due:true,day:slot,catchUp:slot!==t.day};
+ if(!done&&t.minute>=at)return {due:true,day:t.day};
+ return {due:false,reason:done&&done>=slot?'DAILY_CAPTURE_DONE':'NOT_DUE'};
 }
