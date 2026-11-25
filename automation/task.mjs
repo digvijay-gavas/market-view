@@ -19,7 +19,11 @@ export function taskXML({user,node,repo,home,date=new Date().toISOString().slice
  return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><RegistrationInfo><Description>Market-view progressive collector: daily positions and optional shared prices inside the configured collection window.</Description></RegistrationInfo><Triggers><CalendarTrigger><Repetition><Interval>PT1M</Interval><Duration>PT${minutes}M</Duration><StopAtDurationEnd>false</StopAtDurationEnd></Repetition><StartBoundary>${date}T${open}:00</StartBoundary><Enabled>true</Enabled><ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay></CalendarTrigger>${dailyTrigger}</Triggers><Principals><Principal id="Author"><UserId>${xml(user)}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><ExecutionTimeLimit>PT25M</ExecutionTimeLimit><Enabled>true</Enabled></Settings><Actions Context="Author"><Exec><Command>conhost.exe</Command><Arguments>${xml(args)}</Arguments><WorkingDirectory>${xml(repo)}</WorkingDirectory></Exec></Actions></Task>`;
 }
+// Under `node --test` the real Windows task must never change (a test that forgot a stand-in
+// once disabled the live collector).
+const underTest=()=>Boolean(process.env.NODE_TEST_CONTEXT);
 export async function installTask(home,schedule={}){
+ if(underTest())throw new Error('REAL_TASK_UNTOUCHABLE_IN_TESTS');
  if(process.platform!=='win32')throw new Error('Windows Task Scheduler is required.');
  const user=(await exec('whoami.exe',[],{windowsHide:true})).stdout.trim(),repo=fileURLToPath(new URL('../',import.meta.url));
  const path=join(home,'scheduled-task.xml');await writeFile(path,'\ufeff'+taskXML({user,node:process.execPath,repo,home,open:schedule.open,close:schedule.close,daily:schedule.dailyCapture===false?null:(schedule.dailyCaptureAt||'20:00')}),{encoding:'utf16le',mode:0o600});
@@ -31,6 +35,7 @@ export async function taskInstalled(){
 }
 // Pausing must stop Windows from launching the task at all, not just make each launch exit early.
 export async function setTaskEnabled(enabled){
+ if(underTest())throw new Error('REAL_TASK_UNTOUCHABLE_IN_TESTS');
  if(process.platform!=='win32'||!await taskInstalled())return false;
  await exec('schtasks.exe',['/Change','/TN',TASK_NAME,enabled?'/ENABLE':'/DISABLE'],{windowsHide:true});return true;
 }
