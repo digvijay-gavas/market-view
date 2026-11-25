@@ -73,7 +73,7 @@ export class LivePrices{
  async fetchNow(){
   if(!this.enabled||this.busy)return false;
   const items=this.items();if(!items.length){this.error='No holdings to price.';this.notify();return false;}
-  this.busy=true;this.error='';this.retryAfter=0;this.notify();
+  this.busy=true;this.error='';this.missed=[];this.retryAfter=0;this.notify();
   let fresh=0,failed=0;const started=Date.now(),bySlug=new Map(items.map(i=>[i.slug,i]));
   // One log entry per fetch: which source priced each stock and why others failed (reliability record).
   const log={at:this.now().toISOString(),mode:this.mode,requested:items.length,withSymbol:items.filter(i=>i.symbol).length,calls:0,bySource:{},quotes:[],failed:[],reasons:{},throttled:{},error:null};
@@ -99,12 +99,14 @@ export class LivePrices{
     queue.unshift(...deferred.map(s=>bySlug.get(s)));
    }
    if(fresh){this.version++;this.lastAt=this.now().toISOString();}
-   // Stocks no live source priced keep the saved price from the PC collector (if any).
-   if(failed)this.error=`${failed} live price${failed===1?'':'s'} unavailable${fresh?' (saved prices used)':''}`;
+   // Stocks no live source priced keep the saved price from the PC collector (if any); the page
+   // decides how to word that. Only a fetch that priced nothing at all counts as an error.
+   this.missed=[...new Set(log.failed)];
+   if(failed&&!fresh)this.error='No live prices this time';
    return fresh>0;
   }catch(error){this.error='Price fetch failed';log.error=String(error?.message||error).slice(0,200);return false;}
   finally{this.busy=false;log.ms=Date.now()-started;this.lastLog=log;try{this.onLog(log);}catch{}this.notify();}
  }
  stop(){this.clearTimer(this.timer);this.timer=null;this.mode='demand';this.count=0;}
- clear(){this.stop();this.quotes=new Map();this.version++;this.lastAt=null;this.note='';this.error='';}
+ clear(){this.stop();this.missed=[];this.quotes=new Map();this.version++;this.lastAt=null;this.note='';this.error='';}
 }

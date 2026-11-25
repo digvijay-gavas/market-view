@@ -252,3 +252,11 @@
 .h-cross{stroke:#ffffff55;stroke-width:1}.h-dot{fill:#3987e5;stroke:var(--panel);stroke-width:2}
 .history-tip{position:absolute;top:0;width:170px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:11px;line-height:15px;pointer-events:none}
 #history-note{margin:0}
+
+/* Status tab: dot on the tab, list of load/cache/price sources. */
+.tab-dot{display:inline-block;width:7px;height:7px;margin-left:5px;border-radius:50%;vertical-align:2px;background:#d9a84a}
+.tab-dot.error{background:var(--red)}
+.status-list{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:8px 0 0;font-size:13px}.status-list dt{color:var(--muted)}.status-list dd{margin:0}
+#view-about{overflow-y:auto}#view-about>.card{flex:none}
+.status-card h3{margin:0 0 4px}
+@media(max-width:640px){.status-list{grid-template-columns:1fr;gap:2px}.status-list dd{margin-bottom:8px;font-size:12px}}

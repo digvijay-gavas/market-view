@@ -25,7 +25,19 @@ let reader=null,token=null,expiry=0,expireTimer=null,controller=null,store=null,
 let bmFilter='all',cloudCache=null,cacheSavedAt=null,cacheMessage='';
 let activeView='overview',sourcePage=0,warningPage=0,allocationPage=0,currentWarnings=[],sessionRemembered=false,portfolioCache=null,selectedAccounts=null,selectionRoot=null;
 const loading=(message,value=0)=>{$('load-progress').hidden=false;$('loading-bar').value=value;status(message);};
-const status=(message,error=false)=>{$('status').textContent=message;$('status').classList.toggle('error',error);};
+// The status line shows progress and errors; once a dashboard is on screen routine messages
+// ("checked metadata…") go only to the Status tab.
+let statusError=false;
+const status=(message,error=false)=>{statusError=error;$('status').textContent=message;$('status').classList.toggle('error',error);$('status').hidden=Boolean(store)&&!error&&!busy;const log=document.getElementById('status-log');if(log)log.textContent=message||'—';updateStatusDot();};
+// Tab dot: red for errors (load failure, prices nobody could supply), amber for data warnings.
+function updateStatusDot(){
+ const dot=document.getElementById('status-dot');if(!dot)return;
+ const level=statusError||live.error||unpricedNow().length?'error':currentWarnings.length?'warn':'';
+ dot.hidden=!level;dot.className='tab-dot '+level;dot.title=level==='error'?'Errors: see Status':level==='warn'?currentWarnings.length+' data warning'+(currentWarnings.length===1?'':'s'):'';
+}
+// Missed live prices split into those the PC collector's saved price covers and those with none.
+function savedPrice(slug){return Boolean(store?.snapshots.some(s=>s.tables?.holdings?.some(r=>String(r.groww_slug).toLowerCase()===slug&&typeof r.ltp==='number'&&r.ltp>0)));}
+function unpricedNow(){return (live.missed||[]).filter(s=>!savedPrice(s));}
 let priceLog=null;
 // Each live fetch is logged to market-view-data/_price-log (only when this login may write to Drive).
 function logPrices(entry){
@@ -52,8 +64,13 @@ function renderAgo(){
  if(t.positions)parts.push('Positions '+ago(t.positions));
  if(live.remaining!=null)parts.push(live.remaining+' left');
  if(live.note)parts.push(live.note);if(live.error)parts.push(live.error);
+ const missed=live.missed||[],none=unpricedNow();
+ if(t.livePrices&&missed.length>none.length)parts.push((missed.length-none.length)+' from PC prices');
+ if(none.length)parts.push(none.length+' without a price');
  if(!live.enabled)parts.push('Live prices off');
- $('live-status').textContent=parts.join(' · ');$('live-status').classList.toggle('error',Boolean(live.error));
+ $('live-status').textContent=parts.join(' · ');$('live-status').classList.toggle('error',Boolean(live.error)||none.length>0);
+ const src=document.getElementById('live-sources');if(src)src.textContent=live.lastLog?Object.entries(live.lastLog.bySource).map(([k,n])=>n+' from '+({yahoo:'Yahoo Finance',groww:'Groww'}[k]||k)).concat(missed.length?[(missed.length-none.length)+' from PC saved prices'+(none.length?', '+none.length+' without a price ('+none.join(', ')+')':'')]:[]).join(' · ')+' — '+stamp(live.lastLog.at):'Not fetched in this visit.';
+ updateStatusDot();
  $('live-status').title=[t.prices&&'Prices: '+stamp(t.prices)+(t.livePrices?' (live overlay, not saved)':''),t.positions&&'Positions: '+stamp(t.positions),live.lastLog&&'Last live fetch: '+(Object.entries(live.lastLog.bySource).map(([k,n])=>k+' '+n).join(', ')||'none')+(live.lastLog.failed.length?', saved '+live.lastLog.failed.length:'')].filter(Boolean).join('\n');
 }
 function renderLive(){
@@ -64,11 +81,11 @@ function renderLive(){
 }
 function clearData() {
   $('load-progress').hidden=true;document.documentElement.classList.remove('initial-loading');
-  bmFilter='all';cloudCache=null;cacheSavedAt=null;cacheMessage='';$('cache-state').textContent='';
+  bmFilter='all';cloudCache=null;cacheSavedAt=null;cacheMessage='';$('cache-state').textContent='—';$('status').hidden=false;
   generation++;selectionRoot=null;selectedAccounts=null;controller?.abort();controller=null;reader=null;store=null;selectedRoot=null;busy=false;live.clear();$('live-bar').hidden=true;$('topbar-pill').hidden=false;
   $('dashboard').hidden=true;$('folder-panel').hidden=true;
   document.documentElement.classList.remove('app-loaded');currentWarnings=[];sourcePage=warningPage=allocationPage=0;showView('overview');
-  for(const id of ['source-pages','warning-pages','data-alert','history-chart'])$(id).replaceChildren();history=null;historyRoot=null;
+  for(const id of ['source-pages','warning-pages','history-chart'])$(id).replaceChildren();history=null;historyRoot=null;
   $('back-portfolio').hidden=true;
   for(const id of ['positions','stats','allocation','largest','provenance','warnings','folder-results'])$(id).replaceChildren();
   $('account-options').replaceChildren();$('account-panel').hidden=true;$('account-button').setAttribute('aria-expanded','false');$('account-button').textContent='Accounts: All accounts ▾';$('account-chip').hidden=true;$('menu-dashboard').hidden=true;$('folder-id').value='';$('search').value='';$('freshness').textContent='';$('store-name').textContent='Portfolio';
@@ -120,7 +137,7 @@ function displayStore(result,id,views){
  renderAccountPicker();
  $('folder-panel').hidden=true;$('folder-results').replaceChildren();render();loadHistory();
 }
-function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=(cacheSavedAt?'Dashboard cached '+cacheAge(cacheSavedAt)+' · ':'')+message;}
+function cacheStatus(message){cacheMessage=message;$('cache-state').textContent=((cacheSavedAt?'Dashboard cached '+cacheAge(cacheSavedAt)+' · ':'')+message)||'—';}
 async function openFolder(id,force=false) {
  if(busy)return false;
  let succeeded=false;
@@ -263,7 +280,7 @@ function render() {
   for(const x of p.xirrExcluded||[])warnings.push(`XIRR leaves out ${x.name} (${x.account}): ${x.reason}.`);
   for(const x of p.xirrAdjusted||[])warnings.push(`XIRR uses Groww's invested ${money(x.invested)} for ${x.name} (${x.account}); its P&L lots say ${money(x.lotCost)} (shares credited into Groww, e.g. grey-market or transfer). Lot dates are kept.`);
   currentWarnings=warnings;
-  $('data-alert').hidden=!warnings.length;$('data-alert').textContent=warnings.length?`${warnings.length} data warning${warnings.length===1?'':'s'} · Saved prices may be stale. See the Data tab.`:'';
+  updateStatusDot();$('status').hidden=!statusError&&!busy;
   renderHistory();
   $('stats').replaceChildren();
   const stats=[['CURRENT VALUE',money(p.value),''],['INVESTED',money(p.cost),'Cost of the captured holdings'],['OPEN HOLDINGS XIRR',numeric(p.xirr)?pct(p.xirr):'Unavailable',numeric(p.xirr)?(p.xirrExcluded?.length&&p.xirrCoverage?`Covers ${p.xirrCoverage.included} of ${p.xirrCoverage.total} holdings · see Data`:'Annualised · excludes sales/dividends'):p.xirrReason],['CASH EQUIVALENT',money(p.cashEquivalent),'LIQUIDCASE · '+(numeric(p.cashWeight)?p.cashWeight.toFixed(1)+'% of total':'weight unavailable')],['GOLD',money(p.goldValue),'GOLDCASE'],['DIVIDEND CREDITS',money(p.dividends),p.dividendAccounts.length?'Saved reports · separate from P&L':'No saved reports for these accounts']];

@@ -114,7 +114,7 @@ test('viewer sends symbols and logs which source priced each stock',async()=>{
  }});
  assert.equal(await live.fetchNow(),true);assert.deepEqual(sent,['a:NSE:M&M,b']);
  assert.equal(logs.length,1);assert.deepEqual(logs[0].bySource,{yahoo:1});assert.deepEqual(logs[0].failed,['b']);assert.deepEqual(logs[0].quotes,[['a','yahoo',10,'2026-11-25T06:49:52.000Z']]);
- assert.equal(logs[0].withSymbol,1);assert.match(live.error,/1 live price unavailable \(saved prices used\)/);
+ assert.equal(logs[0].withSymbol,1);assert.equal(live.error,'');assert.deepEqual(live.missed,['b']);
 });
 test('holding items carry exchange symbols, preferring a row that has one',async()=>{
  const {holdingItems}=await import('../src/live-prices.js');
