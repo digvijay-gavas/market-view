@@ -1,5 +1,5 @@
 import {probePage,extractHoldings,HOLDINGS_URL,fillPinInPage,scrollHoldings,holdingsFromResponse} from './holdings.js';
-import {captureSmallcase,capturePnl,discardDownload} from './extras.js';
+import {captureSmallcase,capturePnl,discardDownload,quantitiesChanged} from './extras.js';
 export const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=code=>{throw new Error(code);};
 export async function captureHoldings(chromeApi,api,plan,{delay=pause,now=Date.now,timeoutMs=90000,windowId}={}){
@@ -32,10 +32,13 @@ export async function collectCycle(chromeApi,api,manual=false,options={}){
  // error, and they are still sent when the holdings capture itself fails.
  const runExtras=async()=>{const extras={};
   if(Array.isArray(plan.smallcases)&&plan.smallcases.length){extras.smallcases=[];for(const id of plan.smallcases)extras.smallcases.push(await captureSmallcase(chromeApi,id,options).catch(()=>({id,error:'SMALLCASE_FAILED'})));}
-  if(plan.pnl)extras.pnl=await capturePnl(chromeApi,options).catch(()=>({error:'PNL_FAILED'}));return extras;};
+  if(plan.pnl||pnlNow)extras.pnl=await capturePnl(chromeApi,options).catch(()=>({error:'PNL_FAILED'}));return extras;};
+ let pnlNow=false;
  let extras=null;
  try{
-  const capture=await captureHoldings(chromeApi,api,plan,options);extras=await runExtras();
+  const capture=await captureHoldings(chromeApi,api,plan,options);
+  // A buy or sell since the last capture: refresh P&L lots now (see pnlIfChanged in the collector).
+  pnlNow=!plan.pnl&&quantitiesChanged(plan.pnlIfChanged,capture.rows);extras=await runExtras();
   const result=await api('result',{...capture,extras,requestId:plan.requestId});
   if(extras.pnl?.downloadId!==undefined&&result.pnlRead)await discardDownload(chromeApi,extras.pnl.downloadId);
   return {state:'captured',positions:result.positions,capturedAt:result.capturedAt,account:plan.account,pnl:result.pnl||null,bm:result.bm||null};

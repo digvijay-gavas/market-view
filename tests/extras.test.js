@@ -72,3 +72,16 @@ test('only a fresh Groww P&L workbook path is read',async()=>{
  for(const p of ['relative/PnL.xlsx','C:\\x\\notes.xlsx','C:\\x\\PnL.csv'])await assert.rejects(readPnlDownload(p,now,{info,read:async()=>Buffer.alloc(0)}),/PNL_UNEXPECTED_FILE/);
  await assert.rejects(readPnlDownload('C:\\x\\Stocks_PnL.xlsx',now,{info:async()=>({isFile:()=>true,size:10,mtimeMs:+now-3600000}),read:async()=>Buffer.alloc(0)}),/PNL_UNEXPECTED_FILE/);
 });
+test('P&L follows position changes when the weekly export is not due',async()=>{
+ const {pnlIfChanged}=await import('../automation/extras.mjs'),{quantitiesChanged}=await import('../extension/extras.js');
+ const config={pnlEnabled:true},ext={capture:{rows:[{groww_slug:'a',qty:10},{groww_slug:'b',qty:5}]}};
+ assert.deepEqual(pnlIfChanged(config,ext,{pnl:false}),{a:10,b:5});
+ assert.equal(pnlIfChanged(config,ext,{pnl:true}),null,'already planned');
+ assert.equal(pnlIfChanged({pnlEnabled:false},ext,{pnl:false}),null);assert.equal(pnlIfChanged(config,{},{pnl:false}),null,'no previous capture');
+ const prev={a:10,b:5};
+ assert.equal(quantitiesChanged(prev,[{groww_slug:'a',qty:10},{groww_slug:'b',qty:5}]),false);
+ assert.equal(quantitiesChanged(prev,[{groww_slug:'a',qty:12},{groww_slug:'b',qty:5}]),true,'bought more');
+ assert.equal(quantitiesChanged(prev,[{groww_slug:'a',qty:10}]),true,'sold out');
+ assert.equal(quantitiesChanged(prev,[{groww_slug:'a',qty:10},{groww_slug:'b',qty:5},{groww_slug:'c',qty:1}]),true,'new holding');
+ assert.equal(quantitiesChanged(null,[{groww_slug:'a',qty:1}]),false);
+});

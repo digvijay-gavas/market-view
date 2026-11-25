@@ -5,7 +5,7 @@ import {readJSON,lock,validateConfig} from './worker.mjs';
 import {ist,marketOpen} from './schedule.mjs';
 import {validateProgressive} from '../src/progressive.js';
 import {queuedCapture,captureOperation} from './capture-operation.mjs';
-import {plannedExtras,acceptExtras} from './extras.mjs';
+import {plannedExtras,acceptExtras,pnlIfChanged} from './extras.mjs';
 const hash=s=>createHash('sha256').update(s).digest('hex');
 const fail=code=>{throw new Error(code);};
 const same=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
@@ -73,8 +73,9 @@ export class ExtensionBridge{
     if(!manual&&ext.capture&&ist(new Date(ext.capture.capturedAt)).day===ist(now).day)return {action:'idle',reason:'POSITIONS_CURRENT',account:input.account};
     // A scheduled daily capture keeps the normal extras cadence (BM daily, P&L weekly); only a person's request refreshes early.
     const extras=plannedExtras(config,input.account,ext,now,manual&&!ext.extrasScheduled);
+    const ifChanged=pnlIfChanged(config,ext,extras);if(ifChanged)extras.pnlIfChanged=ifChanged;
     // Each extra (BM page, P&L download) gets its own time on top of the holdings capture.
-    if(!ext.request||Date.parse(ext.request.expiresAt)<+now)ext.request={id:randomBytes(24).toString('base64url'),issuedAt:now.toISOString(),expiresAt:new Date(+now+180000+120000*(extras.smallcases.length+(extras.pnl?1:0))).toISOString(),extras};
+    if(!ext.request||Date.parse(ext.request.expiresAt)<+now)ext.request={id:randomBytes(24).toString('base64url'),issuedAt:now.toISOString(),expiresAt:new Date(+now+180000+120000*(extras.smallcases.length+(extras.pnl||extras.pnlIfChanged?1:0))).toISOString(),extras};
     if(!['queued','running'].includes(ext.operation?.phase))ext.operation=queuedCapture(now);
     Object.assign(ext.operation,{phase:'running',startedAt:ext.operation.startedAt||now.toISOString(),deadlineAt:ext.request.expiresAt,captureRequestId:ext.request.id});
     await vault.save();return {action:'capture',account:input.account,requestId:ext.request.id,expiresAt:ext.request.expiresAt,...(ext.request.extras||{smallcases:[],pnl:false})};

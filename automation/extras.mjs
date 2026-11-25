@@ -14,6 +14,13 @@ export function extrasConfig(config){
  return {smallcases,pnlEveryDays:days,pnlEnabled:config.pnlEnabled!==false,bmEnabled:config.bmEnabled!==false};
 }
 // BM: daily (manual runs refresh it if older than an hour). P&L: every N days (manual: if older than 12 h).
+// P&L also follows position changes: when the weekly export is not due, the capture gets the
+// previous quantities and downloads P&L only if this capture's quantities differ (a buy or sell),
+// so XIRR's purchase lots keep matching the holdings.
+export function pnlIfChanged(config,ext,planned){
+ if(planned.pnl||!extrasConfig(config).pnlEnabled||!Array.isArray(ext.capture?.rows))return null;
+ return Object.fromEntries(ext.capture.rows.filter(r=>typeof r.groww_slug==='string'&&Number.isFinite(r.qty)).map(r=>[r.groww_slug,r.qty]));
+}
 export function plannedExtras(config,account,ext,now,manual){
  const c=extrasConfig(config),status=ext.extrasStatus||{},age=at=>+now-(Date.parse(at||'')||0);
  const bmDue=at=>!at||(manual?age(at)>3600000:ist(new Date(at)).day!==ist(now).day);
@@ -42,7 +49,7 @@ export async function acceptExtras(ext,extras,planned,now,deps={}){
   }catch(error){status.bm[key]={...status.bm[key],attemptedAt:at,error:/^[A-Z_]+$/.test(error.message)?error.message:'SMALLCASE_INVALID'};}
  }
  out.bm=status.bm||null;
- if(asked.pnl&&extras?.pnl){
+ if((asked.pnl||asked.pnlIfChanged)&&extras?.pnl){
   status.pnl={...status.pnl,attemptedAt:at};
   try{
    if(extras.pnl.error)throw new Error(/^[A-Z_]+$/.test(extras.pnl.error)?extras.pnl.error:'PNL_FAILED');

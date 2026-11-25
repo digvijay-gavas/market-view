@@ -7,6 +7,12 @@
 export const SMALLCASE_URL=id=>'https://smallcases.groww.in/smallcase/'+encodeURIComponent(id)+'/stocks';
 export const PNL_URL='https://groww.in/report/profit-loss/stocks?type=current-financial-year';
 
+// True when this capture's quantities differ from the previous capture's (a buy, sell or new holding).
+export function quantitiesChanged(previous,rows){
+ if(!previous||!Array.isArray(rows))return false;
+ const now=new Map(rows.filter(r=>r.qty>0).map(r=>[r.groww_slug,r.qty])),before=Object.entries(previous).filter(([,q])=>q>0);
+ return now.size!==before.length||before.some(([slug,q])=>Math.abs((now.get(slug)??0)-q)>1e-9);
+}
 export function clickText(want){
  // Innermost visible element whose whole text is `want` (Groww/smallcase have no test hooks).
  const all=[...document.querySelectorAll('body *')].filter(e=>e.textContent.trim()===want&&e.getClientRects().length);
