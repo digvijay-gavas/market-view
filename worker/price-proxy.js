@@ -17,14 +17,14 @@ function cors(origin,allowed){
 }
 function json(body,status,headers){return new Response(JSON.stringify(body),{status,headers:{...headers,'Content-Type':'application/json','Cache-Control':'no-store'}});}
 
-class Throttled extends Error{constructor(retryAfter){super('UPSTREAM_THROTTLED');this.retryAfter=retryAfter;}}
+class Throttled extends Error{constructor(retryAfter,status){super("UPSTREAM_THROTTLED");this.retryAfter=retryAfter;this.status=status;}}
 
 // Edge cache first; only a miss reaches Groww. Shared across every viewer.
 async function cachedJSON(url,ttl,{cache,fetcher}){
  const key=new Request(url);
  const hit=cache&&await cache.match(key);if(hit)return hit.json();
  const response=await fetcher(url,{headers:{Accept:'application/json','User-Agent':'MarketViewPriceRelay/1.0'}});
- if(response.status===429||response.status===403){const retry=Number(response.headers.get('retry-after'));throw new Throttled(Number.isFinite(retry)&&retry>0?Math.min(retry,3600):600);}
+ if(response.status===429||response.status===403){const retry=Number(response.headers.get('retry-after'));throw new Throttled(Number.isFinite(retry)&&retry>0?Math.min(retry,3600):600,response.status);}
  if(!response.ok)throw new Error('UPSTREAM_'+response.status);
  const body=await response.json();
  if(cache)await cache.put(key,new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json','Cache-Control':'public, max-age='+ttl}}));
@@ -52,17 +52,17 @@ export async function handle(request,env={},deps={}){
  if(!slugs.length||slugs.length>MAX_SLUGS||!slugs.every(s=>SLUG.test(s)))return json({error:'INVALID_SLUGS'},400,headers);
  const d={cache:deps.cache===undefined?globalThis.caches?.default:deps.cache,fetcher:deps.fetcher||fetch},now=deps.now?.()||new Date();
  const deferred=slugs.splice(BATCH);
- const quotes=[],failures=[];let retryAfter=0,next=0;
+ const quotes=[],failures=[];let retryAfter=0,upstream=null,next=0;
  // A few at a time; once Groww says slow down, every remaining slug is skipped.
  await Promise.all(Array.from({length:Math.min(CONCURRENCY,slugs.length)},async()=>{
   while(next<slugs.length){
    const slug=slugs[next++];
    if(retryAfter){failures.push(slug);continue;}
    try{const q=await quote(slug,d,now);q?quotes.push(q):failures.push(slug);}
-   catch(error){failures.push(slug);if(error instanceof Throttled)retryAfter=error.retryAfter;}
+   catch(error){failures.push(slug);if(error instanceof Throttled){retryAfter=error.retryAfter;upstream=error.status;}}
   }
  }));
- return json({quotes,failures,deferred,retryAfter:retryAfter||null},200,headers);
+ return json({quotes,failures,deferred,retryAfter:retryAfter||null,...(upstream?{upstream}:{})},200,headers);
 }
 
 export default {fetch:(request,env)=>handle(request,env)};
